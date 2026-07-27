@@ -8,7 +8,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-class IGFDataExtractorV3:
+class IGFDataExtractorV4:
     def __init__(self, root_dir: str):
         self.root_dir = Path(root_dir)
         self.data_records = []
@@ -31,16 +31,57 @@ class IGFDataExtractorV3:
                 session_type = raw_type.replace('-', ' ').title()
         return year, session_type
 
+    def _is_valid_speaker(self, name: str) -> bool:
+        """核心防污染校验器：严格甄别并过滤非人名、角色标签与占位符"""
+        if not name or len(name) < 3 or len(name) > 40:
+            return False
+
+        name_lower = name.lower().strip()
+
+        # 1. 绝对不能包含的无效角色、组织或UI关键词
+        invalid_keywords = [
+            'speaker', 'moderator', 'panelist', 'organizer', 'organiser',
+            'opening remarks', 'civil society', 'alphabetical order',
+            'onsite', 'welcome', 'keynote', 'introduction', 'closing',
+            'remote', 'chair', 'rapporteur', 'session', 'http', 'www',
+            'group', 'forum', 'igf', 'tbc', 'tba', 'various', 'panel',
+            'speakers', 'panelists', 'moderators', 'organizers', 'participants',
+            'remote hub', 'remote moderator', 'interventions', 'agenda'
+        ]
+        for kw in invalid_keywords:
+            if kw in name_lower:
+                return False
+
+        # 2. 排除带编号的占位符（如 "Speaker 1", "Organizer 2"）
+        if re.search(r'\b(speaker|panelist|moderator|organizer)\s*\d+\b', name_lower):
+            return False
+
+        # 3. 必须包含英文字母（排除纯数字、纯符号）
+        if not re.search(r'[a-zA-Z]', name):
+            return False
+
+        return True
+
     def _extract_by_dom_speakers(self, soup: BeautifulSoup):
-        """DOM 树结构提取"""
+        """DOM 树结构提取：优先抓取超链接或列表项中的真实人名"""
         speakers = []
         speaker_classes = re.compile(
             r'field-name-field-(speakers|panelists|participants|moderators|speakers-panelists|organizer|person)', re.I
         )
         containers = soup.find_all(class_=speaker_classes)
         for c in containers:
-            items = [s.strip() for s in c.stripped_strings if len(s.strip()) > 2]
-            speakers.extend(items)
+            # 优先提取 <a> 标签和 <li> 标签，通常这些里面包的是精准的人名
+            links = [a.get_text(strip=True) for a in c.find_all('a')]
+            lis = [li.get_text(strip=True) for li in c.find_all('li')]
+
+            candidates = links if links else lis
+            if not candidates:
+                candidates = [s.strip() for s in c.stripped_strings]
+
+            for item in candidates:
+                item_clean = item.rstrip(':').strip()
+                if self._is_valid_speaker(item_clean):
+                    speakers.append(item_clean)
         return speakers
 
     def _extract_by_dom_themes(self, soup: BeautifulSoup):
@@ -54,41 +95,56 @@ class IGFDataExtractorV3:
         return themes
 
     def _extract_by_regex(self, full_text: str, target_type: str) -> str:
-        """核心后备引擎：直接对全文文本做正则匹配"""
+        """核心后备正则引擎：针对文本块做精准匹配与拆分"""
         if not full_text:
             return "N/A"
 
         if target_type == "speakers":
-            # 匹配正文中类似 Speakers: Alice, Bob 或 Panellists: ... 的内容
             patterns = [
                 r'(?:Speakers|Panellists|Panelists|Moderators|Speakers/Panellists|Organizers|Organisers|Speaker\(s\))\s*[:\-]\s*([^\n\r]+)',
                 r'(?:Speakers|Panellists|Panelists)\s*\n\s*([^\n\r]+)'
             ]
+            for pattern in patterns:
+                match = re.search(pattern, full_text, re.I)
+                if match:
+                    content = match.group(1).strip()
+                    content = re.sub(r'<(.*?)>', '', content)
+                    # 按照逗号或 and 将可能的一长串名字拆开
+                    parts = re.split(r'[,;]|\band\b', content)
+                    valid_parts = []
+                    for p in parts:
+                        p_clean = p.rstrip(':').strip()
+                        if self._is_valid_speaker(p_clean):
+                            valid_parts.append(p_clean)
+                    if valid_parts:
+                        return " | ".join(valid_parts)
+            return "N/A"
+
         elif target_type == "themes":
-            # 匹配正文中类似 Theme: Digital Governance 或 Subtheme: ... 的内容
             patterns = [
                 r'(?:Theme|Sub-theme|Subtheme|Main Theme|Tags|Category)\s*[:\-]\s*([^\n\r]+)',
                 r'(?:Theme|Subtheme)\s*\n\s*([^\n\r]+)'
             ]
-        else:
-            return "N/A"
-
-        for pattern in patterns:
-            match = re.search(pattern, full_text, re.I)
-            if match:
-                content = match.group(1).strip()
-                # 截断过长或跨行污染的数据
-                content = re.sub(r'<(.*?)>', '', content)  # 去除可能残存的html标签
-                if 2 < len(content) < 300:
-                    return content
+            for pattern in patterns:
+                match = re.search(pattern, full_text, re.I)
+                if match:
+                    content = match.group(1).strip()
+                    content = re.sub(r'<(.*?)>', '', content)
+                    if 2 < len(content) < 300:
+                        return content
         return "N/A"
 
-    def _clean_field(self, items_list, stop_words):
+    def _clean_field(self, items_list, field_type):
+        """清洗并去重字段"""
         clean_items = []
         for item in list(dict.fromkeys(items_list)):
-            c_item = re.sub(r'\s+', ' ', item).strip()
-            if c_item and c_item.lower() not in stop_words and len(c_item) > 2:
-                clean_items.append(c_item)
+            c_item = re.sub(r'\s+', ' ', item).rstrip(':').strip()
+            if field_type == "speakers":
+                if self._is_valid_speaker(c_item):
+                    clean_items.append(c_item)
+            else:
+                if c_item and len(c_item) > 2:
+                    clean_items.append(c_item)
         return " | ".join(clean_items) if clean_items else "N/A"
 
     def parse_html(self, file_path: Path):
@@ -99,7 +155,6 @@ class IGFDataExtractorV3:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 soup = BeautifulSoup(f, 'html.parser')
 
-            # 提取页面全文本用于正则匹配
             full_text = soup.get_text(separator='\n')
 
             # 1. Title
@@ -112,13 +167,13 @@ class IGFDataExtractorV3:
 
             # 2. Speakers 提取 (DOM 优先 -> 失败则转正则)
             speakers_list = self._extract_by_dom_speakers(soup)
-            speakers = self._clean_field(speakers_list, {'speakers', 'panelists', 'moderator', 'n/a', 'none'})
+            speakers = self._clean_field(speakers_list, "speakers")
             if speakers == "N/A":
                 speakers = self._extract_by_regex(full_text, "speakers")
 
-            # 3. Themes 提取 (DOM 优先 -> 失败则转正则)
+            # 3. Themes 提取
             themes_list = self._extract_by_dom_themes(soup)
-            themes = self._clean_field(themes_list, {'theme', 'subtheme', 'tags', 'category', 'n/a'})
+            themes = self._clean_field(themes_list, "themes")
             if themes == "N/A":
                 themes = self._extract_by_regex(full_text, "themes")
 
@@ -150,7 +205,7 @@ class IGFDataExtractorV3:
                 if "proposal" not in file_path.name.lower():
                     valid_html_files.append(file_path)
 
-        logging.info(f"锁定 {len(valid_html_files)} 个有效文件，开始双引擎解析...")
+        logging.info(f"锁定 {len(valid_html_files)} 个有效文件，开始多层过滤解析...")
         for i, file_path in enumerate(valid_html_files):
             self.parse_html(file_path)
             if (i + 1) % 500 == 0:
@@ -162,19 +217,18 @@ class IGFDataExtractorV3:
 if __name__ == "__main__":
     ROOT_DIRECTORY = r"C:\Users\guhao\PyCharmMiscProject"
 
-    extractor = IGFDataExtractorV3(ROOT_DIRECTORY)
+    extractor = IGFDataExtractorV4(ROOT_DIRECTORY)
     df = extractor.run_pipeline()
 
     if not df.empty:
-        output_csv = "igf_historical_data_clean_v3.csv"
+        output_csv = "igf_historical_data_clean_v4.csv"
         df.to_csv(output_csv, index=False, encoding='utf-8-sig')
         logging.info(f"✅ 解析完成！数据已保存至 {output_csv}")
 
-        # 输出提取质量报告
         valid_speakers = (df['Speakers_Raw'] != 'N/A').sum()
         valid_themes = (df['Themes'] != 'N/A').sum()
         valid_desc = (df['Description'] != 'N/A').sum()
-        print(f"\n================ 数据提取质量报告 (V3) ================")
+        print(f"\n================ 数据提取质量报告 (V4) ================")
         print(f"- 演讲者有效提取率: {valid_speakers} / {len(df)} ({valid_speakers / len(df) * 100:.1f}%)")
         print(f"- 主题标签有效提取率: {valid_themes} / {len(df)} ({valid_themes / len(df) * 100:.1f}%)")
         print(f"- 描述文本有效提取率: {valid_desc} / {len(df)} ({valid_desc / len(df) * 100:.1f}%)")
