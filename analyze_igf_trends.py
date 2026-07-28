@@ -1,8 +1,9 @@
 import pandas as pd
+import os
 
 
-def analyze_igf_data(csv_path: str):
-    print(f"📂 正在加载数据文件: {csv_path}...\n")
+def export_all_frequencies(csv_path: str):
+    print(f"📂 正在加载主数据文件: {csv_path}...\n")
     try:
         df = pd.read_csv(csv_path)
     except FileNotFoundError:
@@ -10,13 +11,14 @@ def analyze_igf_data(csv_path: str):
         return
 
     # 1. 数据预处理
+    print("⏳ 正在清洗与拆解多值字段...")
     df['Year'] = pd.to_numeric(df['Year'], errors='coerce')
 
-    target_cols = ['Themes', 'Speakers', 'Organizations']
+    # 包含了 V2 脚本中可能新增的 Keywords 列
+    target_cols = ['Themes', 'Speakers', 'Organizations', 'Keywords']
 
     for col in target_cols:
         if col in df.columns:
-            # 防御性处理：先充填空值 .fillna('')，并在 lambda 内用 str(x) 确保类型安全
             df[col + '_List'] = df[col].fillna('').astype(str).apply(
                 lambda x: [
                     item.strip() for item in str(x).split('|')
@@ -24,77 +26,85 @@ def analyze_igf_data(csv_path: str):
                 ]
             )
         else:
-            print(f"⚠️ 警告: 未找到列 '{col}'，已填充空列表。")
             df[col + '_List'] = [[] for _ in range(len(df))]
 
     print("-" * 50)
+    print("🚀 开始统计全量数据并生成独立报表，请稍候...\n")
 
     # ==========================================
-    # 任务 1：全局主题频次 (Top 15)
+    # 任务 1：全量主题频次 (All Themes)
     # ==========================================
-    print("🏆 【全局最热主题 Top 15】")
     all_themes = df.explode('Themes_List')['Themes_List'].dropna()
     all_themes = all_themes[all_themes != '']
-    top_themes = all_themes.value_counts().head(15)
+    theme_counts = all_themes.value_counts().reset_index()
+    theme_counts.columns = ['Theme', 'Frequency']
 
-    if top_themes.empty:
-        print("  (暂无有效主题数据，请检查 CSV 内容)")
-    else:
-        for i, (theme, count) in enumerate(top_themes.items(), 1):
-            print(f"{i:2d}. {theme:<35} (出现 {count} 次)")
-    print("-" * 50)
+    theme_csv = 'igf_freq_all_themes.csv'
+    theme_counts.to_csv(theme_csv, index=False, encoding='utf-8-sig')
+    print(f"✅ 全量主题频次已保存至 -> {theme_csv} (共 {len(theme_counts)} 个独立主题)")
 
     # ==========================================
-    # 任务 2：每年最热主题 (Top 3)
+    # 任务 2：全量组织机构频次 (All Organizations)
     # ==========================================
-    print("📅 【历年最热主题演变 (Top 3)】")
-    yearly_themes_df = df.explode('Themes_List').dropna(subset=['Themes_List', 'Year'])
-    yearly_themes_df = yearly_themes_df[yearly_themes_df['Themes_List'] != '']
+    all_orgs = df.explode('Organizations_List')['Organizations_List'].dropna()
+    all_orgs = all_orgs[all_orgs != '']
+    org_counts = all_orgs.value_counts().reset_index()
+    org_counts.columns = ['Organization', 'Frequency']
 
-    if not yearly_themes_df.empty:
-        yearly_themes_df['Year'] = yearly_themes_df['Year'].astype(int)
-        yearly_counts = yearly_themes_df.groupby(['Year', 'Themes_List']).size().reset_index(name='Count')
-        top_yearly = yearly_counts.sort_values(['Year', 'Count'], ascending=[True, False]).groupby('Year').head(3)
-
-        for year, group in top_yearly.groupby('Year'):
-            themes_str = ", ".join([f"{row['Themes_List']}({row['Count']})" for _, row in group.iterrows()])
-            print(f"[{year}] {themes_str}")
-    else:
-        print("  (暂无按年份的有效主题数据)")
-    print("-" * 50)
+    org_csv = 'igf_freq_all_organizations.csv'
+    org_counts.to_csv(org_csv, index=False, encoding='utf-8-sig')
+    print(f"✅ 全量组织频次已保存至 -> {org_csv} (共 {len(org_counts)} 个独立组织)")
 
     # ==========================================
-    # 任务 3：最常发言的发言人及其最高频关联组织 (Top 15)
+    # 任务 3：全量发言人及最常关联组织 (All Speakers)
     # ==========================================
-    print("🎤 【最活跃发言人 Top 15 及其关联组织】")
+    print("⏳ 正在深度计算所有发言人的组织共现关系 (可能需要几秒钟)...")
     speakers_df = df.explode('Speakers_List').dropna(subset=['Speakers_List'])
     speakers_df = speakers_df[speakers_df['Speakers_List'] != '']
-    top_speakers = speakers_df['Speakers_List'].value_counts().head(15)
 
-    if top_speakers.empty:
-        print("  (暂无有效发言人数据)")
-    else:
-        print(
-            f"{'排名':<4} | {'发言人 (Speaker)':<30} | {'会议数':<6} | {'最常关联组织 (Top Associated Organization)'}")
-        print("-" * 90)
+    speaker_counts = speakers_df['Speakers_List'].value_counts()
 
-        for i, (speaker, count) in enumerate(top_speakers.items(), 1):
-            speaker_sessions = speakers_df[speakers_df['Speakers_List'] == speaker]
-            associated_orgs = speaker_sessions.explode('Organizations_List')['Organizations_List'].dropna()
-            associated_orgs = associated_orgs[associated_orgs != '']
+    speaker_records = []
+    for speaker, count in speaker_counts.items():
+        # 提取该发言人参与的所有会议
+        speaker_sessions = speakers_df[speakers_df['Speakers_List'] == speaker]
+        # 统计他在这些会议中同时出现的组织
+        associated_orgs = speaker_sessions.explode('Organizations_List')['Organizations_List'].dropna()
+        associated_orgs = associated_orgs[associated_orgs != '']
 
-            if not associated_orgs.empty:
-                top_org = associated_orgs.value_counts().index[0]
-                org_count = associated_orgs.value_counts().iloc[0]
-                org_display = f"{top_org} (共现 {org_count} 次)"
-            else:
-                org_display = "未知 (Unknown)"
+        top_org = "未知 (Unknown)"
+        if not associated_orgs.empty:
+            top_org = associated_orgs.value_counts().index[0]  # 取共现次数最高的组织
 
-            print(f"{i:<4} | {speaker:<30} | {count:<6} | {org_display}")
-        print("-" * 90)
-    print("✅ 统计分析完成！")
+        speaker_records.append({
+            'Speaker': speaker,
+            'Frequency': count,
+            'Top_Associated_Organization': top_org
+        })
+
+    speaker_freq_df = pd.DataFrame(speaker_records)
+    speaker_csv = 'igf_freq_all_speakers.csv'
+    speaker_freq_df.to_csv(speaker_csv, index=False, encoding='utf-8-sig')
+    print(f"✅ 全量发言人频次已保存至 -> {speaker_csv} (共 {len(speaker_freq_df)} 位发言人)")
+
+    # ==========================================
+    # 任务 4：(可选) 全量专有名词/关键词 (All Keywords)
+    # ==========================================
+    if 'Keywords' in df.columns:
+        all_keywords = df.explode('Keywords_List')['Keywords_List'].dropna()
+        all_keywords = all_keywords[all_keywords != '']
+        keyword_counts = all_keywords.value_counts().reset_index()
+        keyword_counts.columns = ['Keyword', 'Frequency']
+
+        keyword_csv = 'igf_freq_all_keywords.csv'
+        keyword_counts.to_csv(keyword_csv, index=False, encoding='utf-8-sig')
+        print(f"✅ 全量关键词频次已保存至 -> {keyword_csv} (共 {len(keyword_counts)} 个关键词)")
+
+    print("-" * 50)
+    print("🎉 所有全量数据提取完毕！请在左侧项目目录中查看生成的四个 CSV 文件。")
 
 
 if __name__ == "__main__":
+    # 指向大模型清洗出来的源文件
     CSV_FILE_PATH = "igf_historical_data_deep_clean_v2.csv"
-    analyze_igf_data(CSV_FILE_PATH)
+    export_all_frequencies(CSV_FILE_PATH)
