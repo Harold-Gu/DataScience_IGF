@@ -17,7 +17,7 @@ def generate_trend_charts(csv_path: str):
         print(f"❌ 找不到文件 {csv_path}。请确认路径。")
         return
 
-    # 1. 基础数据清洗与爆炸（Explode）
+    # 1. 基础数据清洗
     df['Year'] = pd.to_numeric(df['Year'], errors='coerce')
     df = df.dropna(subset=['Year'])
     df['Year'] = df['Year'].astype(int)
@@ -39,7 +39,9 @@ def generate_trend_charts(csv_path: str):
     # 图表 1：历年最热主题演变趋势 (Top 6)
     # ==========================================
     print("📈 正在计算主题时间序列并生成图表...")
-    themes_df = df.explode('Themes_List').dropna(subset=['Themes_List'])
+
+    # 【修复点】：增加 .reset_index(drop=True) 清洗掉由于 explode 产生的重复索引
+    themes_df = df.explode('Themes_List').dropna(subset=['Themes_List']).reset_index(drop=True)
     themes_df = themes_df[themes_df['Themes_List'] != '']
 
     # 找出全局 Top 6 主题
@@ -49,7 +51,7 @@ def generate_trend_charts(csv_path: str):
     themes_trend = themes_df[themes_df['Themes_List'].isin(top_themes)]
     theme_pivot = pd.crosstab(themes_trend['Year'], themes_trend['Themes_List'])
 
-    # 补全可能缺失的年份（例如某些年份没有任何 Top 主题），并用 0 填充
+    # 补全可能缺失的年份
     all_years = range(df['Year'].min(), df['Year'].max() + 1)
     theme_pivot = theme_pivot.reindex(all_years, fill_value=0)
 
@@ -72,7 +74,9 @@ def generate_trend_charts(csv_path: str):
     # 图表 2：头部发言人历年活跃度趋势 (Top 8)
     # ==========================================
     print("📈 正在计算头部发言人时间序列并生成图表...")
-    speakers_df = df.explode('Speakers_List').dropna(subset=['Speakers_List'])
+
+    # 【修复点】：增加 .reset_index(drop=True) 清洗掉由于 explode 产生的重复索引
+    speakers_df = df.explode('Speakers_List').dropna(subset=['Speakers_List']).reset_index(drop=True)
     speakers_df = speakers_df[speakers_df['Speakers_List'] != '']
 
     # 找出全局 Top 8 发言人
@@ -88,7 +92,6 @@ def generate_trend_charts(csv_path: str):
     # 绘图
     plt.figure(figsize=(12, 6))
     for speaker in top_speakers:
-        # 使用平滑一些的折线，方便查看个人活跃度的起伏
         plt.plot(speaker_pivot.index, speaker_pivot[speaker], marker='s', linestyle='--', linewidth=1.5, label=speaker)
 
     plt.title('Top 8 Most Active Speakers Across Years', fontsize=16, fontweight='bold')
@@ -96,7 +99,6 @@ def generate_trend_charts(csv_path: str):
     plt.ylabel('Number of Sessions Attended', fontsize=12)
     plt.xticks(all_years, rotation=45)
 
-    # 定制 Y 轴刻度，强制使用整数（因为参会次数不可能有小数）
     plt.yticks(np.arange(0, speaker_pivot.max().max() + 2, step=1))
 
     plt.legend(title='Speakers', bbox_to_anchor=(1.05, 1), loc='upper left')
