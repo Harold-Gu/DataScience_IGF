@@ -21,13 +21,13 @@ class IGFMultiThreadExtractorLLM:
         self.max_workers = max_workers
 
         self.data_records = []
-        self.lock = threading.Lock()  # 线程锁，确保线程安全
+        self.lock = threading.Lock()
 
-        # 加载已有进度（断点续传）
+
         if os.path.exists(self.output_csv):
             self.existing_df = pd.read_csv(self.output_csv)
             self.processed_files = set(self.existing_df['Source_File'].dropna().tolist())
-            logging.info(f"📂 发现已有进度，已自动跳过 {len(self.processed_files)} 个已处理文件。")
+            logging.info(f"The number {len(self.processed_files)} of processed files has been automatically skipped.")
         else:
             self.existing_df = pd.DataFrame()
             self.processed_files = set()
@@ -47,11 +47,11 @@ class IGFMultiThreadExtractorLLM:
         return year, session_type
 
     def _clean_html_to_text(self, soup: BeautifulSoup) -> str:
-        """剥离 HTML 杂质，重点抓取正文与会议陈述 (Statement/Transcript) 区域"""
+
         for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
             tag.extract()
 
-        # 优先寻找包含 Statement, Transcript, Body 的重点容器；若无则提取全局
+        # First, look for key containers that contain "Statement", "Transcript", and "Body"; if none are found, extract the overall content.
         statement_containers = soup.find_all(
             class_=re.compile(r'field-name-field-(statement|transcript|body|content|description)', re.I)
         )
@@ -63,11 +63,9 @@ class IGFMultiThreadExtractorLLM:
             text = soup.get_text(separator='\n')
 
         lines = [line.strip() for line in text.splitlines() if line.strip()]
-        # 扩大文本上限至 ~3500 字符，确保覆盖更长的主旨陈述
         return "\n".join(lines)[:3500]
 
     def extract_with_llm(self, text_content: str, title: str) -> dict:
-        """调用本地 LLM 抽取人名、组织、主题以及专有名词/关键词"""
         prompt = f"""
 Analyze the following Internet Governance Forum (IGF) session and statement text. Extract the required information and return ONLY a JSON object.
 
@@ -94,7 +92,7 @@ Session Text:
                 model=self.model_name,
                 messages=[{'role': 'user', 'content': prompt}],
                 format='json',
-                options={'temperature': 0.0}  # 低温确保结果稳定与高确定性
+                options={'temperature': 0.0}
             )
 
             content = response['message']['content'].strip()
@@ -107,11 +105,10 @@ Session Text:
                 "keywords": " | ".join(data.get("keywords", []))
             }
         except Exception as e:
-            logging.error(f"⚠️ LLM 提取失败: {e}")
+            logging.error(f"⚠error: {e}")
             return {"speakers": "N/A", "organizations": "N/A", "themes": "N/A", "keywords": "N/A"}
 
     def process_single_file(self, file_path: Path):
-        """单文件解析逻辑"""
         filename = file_path.name
 
         with self.lock:
@@ -152,11 +149,11 @@ Session Text:
             return record
 
         except Exception as e:
-            logging.warning(f"⚠️ 文件读取异常 {filename}: {e}")
+            logging.warning(f"file read error {filename}: {e}")
             return None
 
     def save_checkpoint(self):
-        """保存进度到 CSV"""
+
         with self.lock:
             if not self.data_records:
                 return
@@ -168,22 +165,22 @@ Session Text:
 
             self.existing_df = combined_df
             self.data_records = []
-            logging.info(f"💾 进度已刷盘保存！当前数据库总记录数: {len(self.existing_df)}")
+            logging.info(f"{len(self.existing_df)}")
 
     def run_pipeline(self):
-        logging.info(f"🚀 启动多线程深度提取引擎 V2 (Model: {self.model_name}, Workers: {self.max_workers})...")
+        logging.info(f"(Model: {self.model_name}, Workers: {self.max_workers})...")
         valid_html_files = [p for p in self.root_dir.rglob("*.html") if
                             not any(x in p.parts for x in ['.venv', '__pycache__'])]
 
         files_to_process = [p for p in valid_html_files if p.name not in self.processed_files]
-        logging.info(f"锁定 {len(valid_html_files)} 个文件，当前待处理: {len(files_to_process)} 个。")
+        logging.info(f" {len(valid_html_files)} ，number need to deal with: {len(files_to_process)} ")
 
         if not files_to_process:
-            logging.info("🎉 所有文件均已处理完毕，无需重复执行！")
+            logging.info("over and success")
             return
 
         completed_count = 0
-        checkpoint_batch = 20  # 每 20 个文件自动刷盘一次
+        checkpoint_batch = 20  # number to save
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {executor.submit(self.process_single_file, fp): fp for fp in files_to_process}
@@ -191,15 +188,15 @@ Session Text:
             for future in as_completed(futures):
                 completed_count += 1
                 if completed_count % checkpoint_batch == 0:
-                    logging.info(f"⚡ 并发进度: 已完成 {completed_count} / {len(files_to_process)}")
+                    logging.info(f"already over {completed_count} / {len(files_to_process)}")
                     self.save_checkpoint()
 
         self.save_checkpoint()
-        logging.info("✅ 深度实体与关键词提取任务全部完成！")
+        logging.info("All over")
 
 
 if __name__ == "__main__":
-    ROOT_DIRECTORY = r"C:\Users\guhao\PyCharmMiscProject"
+    ROOT_DIRECTORY = r".\PyCharmMiscProject"
 
     extractor = IGFMultiThreadExtractorLLM(
         root_dir=ROOT_DIRECTORY,
