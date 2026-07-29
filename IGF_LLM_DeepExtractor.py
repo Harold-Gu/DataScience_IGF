@@ -138,7 +138,7 @@ Session Text:
                 "Themes": extracted["themes"] if extracted["themes"] else "N/A",
                 "Speakers": extracted["speakers"] if extracted["speakers"] else "N/A",
                 "Organizations": extracted["organizations"] if extracted["organizations"] else "N/A",
-                "Keywords": extracted["keywords"] if extracted["keywords"] else "N/A",  # 新增关键词/专有名词列
+                "Keywords": extracted["keywords"] if extracted["keywords"] else "N/A",
                 "Description": description
             }
 
