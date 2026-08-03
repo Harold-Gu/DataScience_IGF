@@ -159,9 +159,7 @@ def get_schema_and_prompt(folder_name: str, text_content: str = "") -> tuple[typ
     return schema, prompt_template
 
 
-# ==========================================
-# 3. File Deduplication - Avoid reprocessing
-# ==========================================
+
 CACHE_FILE = ".igf_processed_cache.json"
 
 
@@ -238,9 +236,7 @@ def mark_file_processed(file_path: Path, file_hash: str, result: dict, cache: di
         pass
 
 
-# ==========================================
-# 4. DOM Coarse-Grained Denoising
-# ==========================================
+
 def clean_html_for_llm(html_content: str) -> str:
     """Strip irrelevant tags and extract plain text to save ~80% tokens"""
     soup = BeautifulSoup(html_content, 'lxml')
