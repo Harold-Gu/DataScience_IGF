@@ -9,9 +9,6 @@ from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
 
 
-# ==========================================
-# 1. Dynamic Schema Definitions
-# ==========================================
 class BaseSessionSchema(BaseModel):
     """Shared base fields for all session types"""
     title: str = Field(default="", description="Full session title")
@@ -71,9 +68,7 @@ class LaunchesAwardsSchema(BaseSessionSchema):
 IGFSessionSchema = BaseSessionSchema
 
 
-# ==========================================
-# 2. Schema Router - Auto-detect session type
-# ==========================================
+
 def get_schema_and_prompt(folder_name: str, text_content: str = "") -> tuple[type[BaseModel], str]:
     """
     Auto-detect session type from folder name (priority) + text keywords (fallback).
@@ -331,9 +326,7 @@ def get_fallback_data(file_path: Path, error_msg: str, schema_cls: type[BaseMode
     return data
 
 
-# ==========================================
-# 5. Async Extraction Engine (Asyncio + Ollama + qwen3:8b)
-# ==========================================
+
 async def extract_data_via_llm(
     session: aiohttp.ClientSession,
     file_path: Path,
@@ -438,9 +431,7 @@ async def extract_data_via_llm(
                 return fallback
 
 
-# ==========================================
-# 6. Main Control Flow & Structured Data Ingestion
-# ==========================================
+
 async def main_pipeline(base_path: str = ".", max_concurrency: int = 1):
     """Pipeline entrypoint"""
     cache = load_processed_cache()
@@ -505,8 +496,7 @@ async def main_pipeline(base_path: str = ".", max_concurrency: int = 1):
     bar_len = 60
     sep = "=" * bar_len
 
-    # ---------- Also recompute scanned-level stats (user scanned X files) ----------
-    # Build a per-scanned-file outcome map so we can report against total_scanned.
+
     outcome_per_file = {}
 
     for entry in cache.values():
