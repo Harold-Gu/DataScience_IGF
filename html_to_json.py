@@ -84,7 +84,7 @@ def parse_igf_page(soup: BeautifulSoup, year: str, session_type: str, file_path:
     if "Description\n" in clean_content:
         clean_content = "Description:\n" + clean_content.split("Description\n", 1)[1]
 
-    # 规范化字符格式
+
     clean_content = clean_content.replace('\xa0', ' ')
     clean_content = re.sub(r'\n{3,}', '\n\n', clean_content).strip()
 
