@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 
 
 def extract_metadata(file_path: Path):
-    """解析文件夹和文件名，提取会议年份与类型"""
+
     folder = file_path.parent.name
     filename = file_path.name
     year, session_type = "Unknown", "Unknown"
@@ -20,7 +20,7 @@ def extract_metadata(file_path: Path):
         year_match = re.search(r'igf_raw_data_(\d{4})', folder)
         if year_match:
             year = year_match.group(1)
-
+    # Had considered many factors, including separating all types of meetings. Here, I will only conduct tests on the "ws" and "open forum" types.
     if year == "Unknown":
         file_match = re.search(r'igf-(\d{4})-([a-zA-Z0-9\-]+?)-\d+', filename, re.I)
         if file_match:
@@ -38,9 +38,9 @@ def extract_metadata(file_path: Path):
 
 
 def parse_igf_page(soup: BeautifulSoup, year: str, session_type: str, file_path: Path):
-    """深度结构化解析 IGF 页面"""
 
-    # 1. 彻底销毁噪音标签
+
+
     for tag in soup(['script', 'style', 'meta', 'link', 'noscript', 'head', 'nav', 'footer', 'header', 'aside']):
         tag.decompose()
 
@@ -50,17 +50,17 @@ def parse_igf_page(soup: BeautifulSoup, year: str, session_type: str, file_path:
     for tag in soup.find_all(attrs={"id": noise_patterns}):
         tag.decompose()
 
-    # 获取初步文本
+
     raw_text = soup.get_text(separator='\n', strip=True)
 
-    # 2. 截断头部 UN 顶栏与尾部联系方式
+
     raw_text = re.sub(r'^(Welcome to the United Nations|Skip to main content)[\s\|A-Za-z]*\n', '', raw_text, flags=re.I)
     if "UNITED NATIONS\nContact information" in raw_text:
         raw_text = raw_text.split("UNITED NATIONS\nContact information")[0]
     elif "Secretariat of the Internet Governance Forum" in raw_text:
         raw_text = raw_text.split("Secretariat of the Internet Governance Forum")[0]
 
-    # 3. 正则提取独立元数据字段 (Metadata Extraction)
+
     def extract_field(pattern, text):
         m = re.search(pattern, text, re.I | re.DOTALL)
         return m.group(1).strip() if m else None
@@ -74,14 +74,13 @@ def parse_igf_page(soup: BeautifulSoup, year: str, session_type: str, file_path:
     sdgs = extract_field(r'\nSDGs\n(.*?)(?=\nTargets:|\nFormat|\nDescription)', raw_text)
     format_type = extract_field(r'\nFormat\n([^\n]+)', raw_text)
 
-    # 4. 正文段落拆分 (Description & Report)
+
     description = extract_field(
         r'\nDescription\n(.*?)(?=\nReport|\nThe co-organisers|\nCall to Action|\nSession Report|$)', raw_text)
     report = extract_field(r'\nReport\n(.*)', raw_text) or extract_field(r'\nSession Report.*?\n(.*)', raw_text)
 
-    # 如果无法精准正则切割出 Description，则做安全降噪清洗作为 content
+
     clean_content = raw_text
-    # 去除顶部的 key-value 连打噪声 (例如: Session\nSubtheme\n... 到 Description 之前的杂音)
     if "Description\n" in clean_content:
         clean_content = "Description:\n" + clean_content.split("Description\n", 1)[1]
 
@@ -114,10 +113,10 @@ def process_html_files(input_dir, output_file):
     total_files = len(html_files)
 
     if total_files == 0:
-        print("未找到 HTML 文件，请检查路径。")
+        print("DO NOT FIND HTML FILES")
         return
 
-    print(f"🚀 开始执行结构化解析：共 {total_files} 个文件...")
+    print(f" The number of document {total_files} ")
 
     for index, file_path in enumerate(html_files, 1):
         try:
@@ -125,7 +124,6 @@ def process_html_files(input_dir, output_file):
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 soup = BeautifulSoup(f.read(), 'html.parser')
 
-            # 结构化解析
             item_data = parse_igf_page(soup, year, session_type, file_path)
             extracted_data.append(item_data)
 
@@ -133,12 +131,12 @@ def process_html_files(input_dir, output_file):
                 print(f"⏳ 进度: {index} / {total_files} ...")
 
         except Exception as e:
-            print(f"❌ 文件 {file_path.name} 解析失败: {e}")
+            print(f"fail {file_path.name} ： {e}")
 
-    print("💾 正在写入高纯度 JSON 文件...")
+
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(extracted_data, f, ensure_ascii=False, indent=2)
-    print(f"✅ 处理完成！已保存至相对路径: {output_file}")
+    print(f"Success: {output_file}")
 
 
 if __name__ == "__main__":
