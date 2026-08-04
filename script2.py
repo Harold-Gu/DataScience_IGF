@@ -53,7 +53,7 @@ def get_all_target_links(list_url):
             if target_year and f'igf-{target_year}-' in href:
                 is_target = True
 
-            elif any(kw in href for kw in ['workshop', 'open-forum', 'lightning', 'session']):
+            elif any(kw in href for kw in ['workshop', 'open-forum', 'lightning', 'session','network','day','pre-event','launches','awards']):
                 is_target = True
 
             if is_target:
