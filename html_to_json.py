@@ -39,8 +39,6 @@ def extract_metadata(file_path: Path):
 
 def parse_igf_page(soup: BeautifulSoup, year: str, session_type: str, file_path: Path):
 
-
-
     for tag in soup(['script', 'style', 'meta', 'link', 'noscript', 'head', 'nav', 'footer', 'header', 'aside']):
         tag.decompose()
 
