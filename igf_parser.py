@@ -1,4 +1,4 @@
-import os
+﻿import os
 import re
 import json
 import hashlib
@@ -7,6 +7,7 @@ import aiohttp
 from pathlib import Path
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
+from igf_common import decompose_noise_tags, safe_extract_field
 
 
 class BaseSessionSchema(BaseModel):

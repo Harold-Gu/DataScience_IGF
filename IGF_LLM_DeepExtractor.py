@@ -1,20 +1,42 @@
+﻿"""
+IGF LLM Deep Extractor (Refactored)
+Multi-threaded extraction using local Ollama LLM (qwen2.5) to extract
+speakers, organizations, themes, and keywords from HTML session pages.
+Supports checkpoint-based resume.
+
+Uses igf_common for shared utilities.
+"""
 import os
 import json
 import re
 import logging
-from pathlib import Path
 import threading
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import pandas as pd
 from bs4 import BeautifulSoup
 import ollama
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+from igf_common import (
+    extract_meta_from_filename,
+    clean_html_to_text,
+    find_igf_html_files,
+)
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
 class IGFMultiThreadExtractorLLM:
-    def __init__(self, root_dir: str, model_name: str = "qwen2.5",
-                 output_csv: str = "igf_historical_data_deep_clean.csv", max_workers: int = 4):
+    """Multi-threaded LLM-based extractor for IGF session data."""
+
+    def __init__(
+        self,
+        root_dir: str,
+        model_name: str = "qwen2.5",
+        output_csv: str = "igf_historical_data_deep_clean.csv",
+        max_workers: int = 4,
+    ):
         self.root_dir = Path(root_dir)
         self.model_name = model_name
         self.output_csv = output_csv
@@ -23,47 +45,16 @@ class IGFMultiThreadExtractorLLM:
         self.data_records = []
         self.lock = threading.Lock()
 
-
+        # Load existing progress for resume
         if os.path.exists(self.output_csv):
             self.existing_df = pd.read_csv(self.output_csv)
-            self.processed_files = set(self.existing_df['Source_File'].dropna().tolist())
-            logging.info(f"The number {len(self.processed_files)} of processed files has been automatically skipped.")
+            self.processed_files = set(self.existing_df["Source_File"].dropna().tolist())
+            logging.info(f"Resume mode: {len(self.processed_files)} files already processed, will skip.")
         else:
             self.existing_df = pd.DataFrame()
             self.processed_files = set()
 
-    def _extract_meta_from_filename(self, filename: str):
-        year, session_type = "Unknown", "Unknown"
-        match = re.search(r'igf-(\d{4})-([a-zA-Z0-9\-]+?)-\d+', filename, re.I)
-        if match:
-            year = match.group(1)
-            raw_type = match.group(2).lower()
-            if 'ws' in raw_type or 'workshop' in raw_type:
-                session_type = "Workshop"
-            elif 'open-forum' in raw_type:
-                session_type = "Open Forum"
-            else:
-                session_type = raw_type.replace('-', ' ').title()
-        return year, session_type
-
-    def _clean_html_to_text(self, soup: BeautifulSoup) -> str:
-
-        for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
-            tag.extract()
-
-        # First, look for key containers that contain "Statement", "Transcript", and "Body"; if none are found, extract the overall content.
-        statement_containers = soup.find_all(
-            class_=re.compile(r'field-name-field-(statement|transcript|body|content|description)', re.I)
-        )
-
-        if statement_containers:
-            text_blocks = [c.get_text(separator='\n') for c in statement_containers]
-            text = "\n".join(text_blocks)
-        else:
-            text = soup.get_text(separator='\n')
-
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        return "\n".join(lines)[:3500]
+    # ------- LLM extraction -------
 
     def extract_with_llm(self, text_content: str, title: str) -> dict:
         prompt = f"""
@@ -90,23 +81,25 @@ Session Text:
         try:
             response = ollama.chat(
                 model=self.model_name,
-                messages=[{'role': 'user', 'content': prompt}],
-                format='json',
-                options={'temperature': 0.0}
+                messages=[{"role": "user", "content": prompt}],
+                format="json",
+                options={"temperature": 0.0},
             )
 
-            content = response['message']['content'].strip()
+            content = response["message"]["content"].strip()
             data = json.loads(content)
 
             return {
                 "speakers": " | ".join(data.get("speakers", [])),
                 "organizations": " | ".join(data.get("organizations", [])),
                 "themes": " | ".join(data.get("themes", [])),
-                "keywords": " | ".join(data.get("keywords", []))
+                "keywords": " | ".join(data.get("keywords", [])),
             }
         except Exception as e:
-            logging.error(f"⚠error: {e}")
+            logging.error(f"LLM extraction error: {e}")
             return {"speakers": "N/A", "organizations": "N/A", "themes": "N/A", "keywords": "N/A"}
+
+    # ------- Per-file processing -------
 
     def process_single_file(self, file_path: Path):
         filename = file_path.name
@@ -115,19 +108,19 @@ Session Text:
             if filename in self.processed_files:
                 return None
 
-        year, session_type = self._extract_meta_from_filename(filename)
+        year, session_type = extract_meta_from_filename(filename)
 
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                soup = BeautifulSoup(f, 'html.parser')
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                soup = BeautifulSoup(f, "html.parser")
 
-            title_elem = soup.find('h1', class_='page-title') or soup.find('h1')
+            title_elem = soup.find("h1", class_="page-title") or soup.find("h1")
             title = title_elem.get_text(strip=True) if title_elem else filename
 
-            clean_text = self._clean_html_to_text(soup)
+            clean_text = clean_html_to_text(soup)
             extracted = self.extract_with_llm(clean_text, title)
 
-            paragraphs = [p.get_text(strip=True) for p in soup.find_all('p') if len(p.get_text(strip=True)) > 20]
+            paragraphs = [p.get_text(strip=True) for p in soup.find_all("p") if len(p.get_text(strip=True)) > 20]
             description = " ".join(paragraphs) if paragraphs else clean_text[:500]
 
             record = {
@@ -139,7 +132,7 @@ Session Text:
                 "Speakers": extracted["speakers"] if extracted["speakers"] else "N/A",
                 "Organizations": extracted["organizations"] if extracted["organizations"] else "N/A",
                 "Keywords": extracted["keywords"] if extracted["keywords"] else "N/A",
-                "Description": description
+                "Description": description,
             }
 
             with self.lock:
@@ -149,38 +142,44 @@ Session Text:
             return record
 
         except Exception as e:
-            logging.warning(f"file read error {filename}: {e}")
+            logging.warning(f"Error processing {filename}: {e}")
             return None
 
-    def save_checkpoint(self):
+    # ------- Checkpoint save -------
 
+    def save_checkpoint(self):
         with self.lock:
             if not self.data_records:
                 return
 
             new_df = pd.DataFrame(self.data_records)
-            combined_df = pd.concat([self.existing_df, new_df],
-                                    ignore_index=True) if not self.existing_df.empty else new_df
-            combined_df.to_csv(self.output_csv, index=False, encoding='utf-8-sig')
+            combined_df = (
+                pd.concat([self.existing_df, new_df], ignore_index=True)
+                if not self.existing_df.empty
+                else new_df
+            )
+            combined_df.to_csv(self.output_csv, index=False, encoding="utf-8-sig")
 
             self.existing_df = combined_df
             self.data_records = []
-            logging.info(f"{len(self.existing_df)}")
+            logging.info(f"Checkpoint saved: {len(self.existing_df)} total records.")
+
+    # ------- Pipeline -------
 
     def run_pipeline(self):
-        logging.info(f"(Model: {self.model_name}, Workers: {self.max_workers})...")
-        valid_html_files = [p for p in self.root_dir.rglob("*.html") if
-                            not any(x in p.parts for x in ['.venv', '__pycache__'])]
+        logging.info(f"Starting LLM extraction (Model: {self.model_name}, Workers: {self.max_workers})...")
 
+        valid_html_files = find_igf_html_files(self.root_dir)
         files_to_process = [p for p in valid_html_files if p.name not in self.processed_files]
-        logging.info(f" {len(valid_html_files)} ，number need to deal with: {len(files_to_process)} ")
+
+        logging.info(f"Total HTML files: {len(valid_html_files)}, need to process: {len(files_to_process)}")
 
         if not files_to_process:
-            logging.info("over and success")
+            logging.info("All files already processed.")
             return
 
         completed_count = 0
-        checkpoint_batch = 20  # number to save
+        checkpoint_batch = 20
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {executor.submit(self.process_single_file, fp): fp for fp in files_to_process}
@@ -188,11 +187,11 @@ Session Text:
             for future in as_completed(futures):
                 completed_count += 1
                 if completed_count % checkpoint_batch == 0:
-                    logging.info(f"already over {completed_count} / {len(files_to_process)}")
+                    logging.info(f"Progress: {completed_count} / {len(files_to_process)}")
                     self.save_checkpoint()
 
         self.save_checkpoint()
-        logging.info("All over")
+        logging.info("All processing complete.")
 
 
 if __name__ == "__main__":
@@ -202,7 +201,6 @@ if __name__ == "__main__":
         root_dir=ROOT_DIRECTORY,
         model_name="qwen2.5",
         output_csv="igf_historical_data_deep_clean_v2.csv",
-        max_workers=4
+        max_workers=4,
     )
-
     extractor.run_pipeline()
