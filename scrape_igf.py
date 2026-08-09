@@ -1,5 +1,4 @@
-
-import os,re,sys,time,random,argparse,threading,hashlib,shutil
+﻿import os,re,sys,time,random,argparse,threading,hashlib,shutil,json
 from datetime import datetime
 from urllib.parse import urljoin,urlparse
 from queue import Queue
@@ -9,72 +8,96 @@ from concurrent.futures import ThreadPoolExecutor,as_completed
 from bs4 import BeautifulSoup
 import cloudscraper
 
-# ===== GLOBAL DEDUP STATE =====
 _visited_lock=threading.Lock()
 _visited_urls=set()
 _stats_lock=threading.Lock()
 _stats={"ok":0,"fail":0,"skip":0,"pages":0}
 
+_rate_lock=threading.Lock()
+_next_ts=0.0
+def _rate_wait(min_gap=0.35):
+    global _next_ts
+    with _rate_lock:
+        now=time.time()
+        wait=max(0,_next_ts-now)
+        _next_ts=max(now,_next_ts)+min_gap+random.uniform(0,0.15)
+    if wait>0:time.sleep(wait)
+
+def _norm_url(url):
+    try:
+        p=urlparse(url)
+        netloc=p.netloc.lower().replace("www.","")
+        path=p.path.rstrip("/")or"/"
+        return f"{p.scheme}://{netloc}{path}"
+    except:return url
+
 def _mark_visited(url):
+    nu=_norm_url(url)
     with _visited_lock:
-        if url in _visited_urls:return False
-        _visited_urls.add(url);return True
+        if nu in _visited_urls:return False
+        _visited_urls.add(nu);return True
+
 def _add_stat(key,n=1):
     with _stats_lock:_stats[key]=_stats.get(key,0)+n
+
 def _print_stat():
     with _stats_lock:s=dict(_stats)
-    print(f"      [ok={s['ok']} fail={s['fail']} skip={s['skip']} pages={s['pages']}]")
+    print(f"  [ok={s['ok']} fail={s['fail']} skip={s['skip']} pages={s['pages']}]")
 
-# ===== CONFIG =====
 IGF_BASE="https://www.intgovforum.org"
-WORKERS=5;MAX_DEPTH=3;YEAR_START=2006;YEAR_END=2025
+WORKERS=5
+MAX_DEPTH=3
+YEAR_START=2006
+YEAR_END=2025
 
-def _create_scraper():
-    return cloudscraper.create_scraper(browser={"browser":"chrome","platform":"windows","desktop":True})
-_discovery_scraper=None
-def _get_discovery_scraper():
-    global _discovery_scraper
-    if _discovery_scraper is None:_discovery_scraper=_create_scraper()
-    return _discovery_scraper
+_tl=threading.local()
+def _get_tl_scraper():
+    if not hasattr(_tl,'s'):_tl.s=cloudscraper.create_scraper(
+        browser={"browser":"chrome","platform":"windows","desktop":True})
+    return _tl.s
 
-def _try_fetch(url,timeout=20):
-    """Fetch a page for link discovery with retry on 429."""
-    for attempt in range(2):
+def _fetch(url,timeout=25,retries=3):
+    for attempt in range(retries):
+        _rate_wait(0.35)
         try:
-            r=_get_discovery_scraper().get(url,timeout=timeout)
+            r=_get_tl_scraper().get(url,timeout=timeout)
             if r.status_code==404:return None
             if r.status_code==429:
-                time.sleep(1.5);continue
+                wait=2**attempt+random.uniform(0.5,2);time.sleep(wait);continue
+            if r.status_code in(502,503,504):time.sleep(1.5);continue
             r.raise_for_status()
-            if len(r.text)<500:
-                return None
+            if len(r.text)<300:return None
             return r
-        except Exception as e:
-            if attempt<1:time.sleep(1);continue
+        except Exception:
+            if attempt<retries-1:time.sleep(1);continue
             return None
     return None
 
-# ===== HELPERS =====
 def _clean(s):
     return re.sub(r'[\\/*?:"<>|]',"",str(s)).replace("\n"," ").strip()
+
 def _ext(link):
     low=link.lower()
     for e in[".pdf",".doc",".docx",".xls",".xlsx",".ppt",".pptx",".zip"]:
         if low.endswith(e):return e
     if"filedepot_download"in low:return".bin"
     return".html"
+
 def _is_file(link):return _ext(link)!=".html"
+
 def _same_domain(url,base):
     try:
         a=urlparse(url).netloc.replace("www.","")
         b=urlparse(base).netloc.replace("www.","")
         return a==b
     except:return False
+
 def _is_igf_domain(url):
     try:
         netloc=urlparse(url).netloc.replace("www.","")
-        return netloc in{"intgovforum.org","un.org","indico.un.org"}or netloc.endswith(".intgovforum.org")or netloc.endswith(".un.org")
+        return netloc in{"intgovforum.org","un.org","indico.un.org"}or netloc.endswith((".intgovforum.org",".un.org"))
     except:return False
+
 def _make_url(href,base=IGF_BASE):
     if href.startswith("http"):return href
     if href.startswith("/"):return base+href
@@ -85,14 +108,12 @@ def _download_one(scraper,url,fpath,max_retries=3):
     if os.path.exists(fpath)and os.path.getsize(fpath)>0:return"skip"
     os.makedirs(os.path.dirname(fpath),exist_ok=True)
     for attempt in range(max_retries):
+        _rate_wait(0.35)
         try:
             r=scraper.get(url,timeout=30)
             if r.status_code==429:
-                time.sleep(2*(attempt+1))
-                continue
-            if r.status_code in (502,503,504):
-                time.sleep(1.5)
-                continue
+                wait=2**(attempt+1)+random.uniform(0.5,2);time.sleep(wait);continue
+            if r.status_code in(502,503,504):time.sleep(1.5);continue
             r.raise_for_status()
             is_bin=_ext(url)in{".pdf",".doc",".docx",".xls",".xlsx",".ppt",".pptx",".zip",".bin"}
             if is_bin:
@@ -106,39 +127,44 @@ def _download_one(scraper,url,fpath,max_retries=3):
                     return"fail"
                 with open(fpath,"w",encoding="utf-8")as f:f.write(r.text)
             return"ok"
-        except Exception as e:
-            if attempt<max_retries-1:
-                time.sleep(1.5)
-                continue
+        except Exception:
+            if attempt<max_retries-1:time.sleep(1.5);continue
             return"fail"
     return"fail"
 
 def _download_batch(tasks,workers):
-    total=len(tasks);done=[0];lock=threading.Lock();_tl_scraper=threading.local()
-    def _get_tl_scraper():
-        if not hasattr(_tl_scraper,'s'):_tl_scraper.s=_create_scraper()
-        return _tl_scraper.s
+    total=len(tasks);done=[0];lock=threading.Lock()
     def _worker_dl(url,fpath):
-        scraper=_get_tl_scraper();result=_download_one(scraper,url,fpath)
+        scraper=_get_tl_scraper()
+        result=_download_one(scraper,url,fpath)
         with lock:
             done[0]+=1
             if result=="ok":_stats["ok"]=_stats.get("ok",0)+1
             elif result=="fail":_stats["fail"]=_stats.get("fail",0)+1
             else:_stats["skip"]=_stats.get("skip",0)+1
+            if done[0]%200==0 or done[0]==total:
+                print(f"      {done[0]}/{total}")
         return result
     with ThreadPoolExecutor(max_workers=workers)as ex:
         futures={}
         for url,fpath,_ in tasks:
             futures[ex.submit(_worker_dl,url,fpath)]=(url,fpath)
-            time.sleep(random.uniform(0.1,0.3))
-        for i,future in enumerate(as_completed(futures),1):
-            if i%100==0:_print_stat();print(f"      progress: {i}/{total}")
-            time.sleep(random.uniform(0.05,0.1))
-    _print_stat()
-
-
-# ===== STEP 1: SESSIONS =====
-SESSION_TYPES={"workshops":["/en/workshop-proposals-{year}","/en/workshops-{year}","/en/content/igf-{year}-workshops"],"open-forums":["/en/open-forums-{year}","/en/open-forum-proposals-{year}","/en/content/igf-{year}-open-forums"],"lightning-talks":["/en/lightning-talks-{year}","/en/lightning-talk-proposals-{year}","/en/content/igf-{year}-lightning-talks"],"day-0-events":["/en/day-0-events-{year}","/en/pre-events-{year}","/en/content/igf-{year}-day-0-events"],"launches-awards":["/en/launches-awards-{year}","/en/content/igf-{year}-launches-awards"],"networking":["/en/networking-sessions-{year}","/en/content/igf-{year}-networking-sessions"],"main-sessions":["/en/main-sessions-{year}","/en/content/igf-{year}-main-sessions"],"town-halls":["/en/town-halls-{year}","/en/town-hall-{year}","/en/content/igf-{year}-town-halls"]}
+            if len(futures)>=workers*15:
+                done_set=set()
+                for f in as_completed(futures):
+                    done_set.add(f)
+                    if len(done_set)>=workers*5:break
+                for f in done_set:del futures[f]
+SESSION_TYPES={
+    "workshops":["/en/workshop-proposals-{year}","/en/workshops-{year}","/en/content/igf-{year}-workshops"],
+    "open-forums":["/en/open-forums-{year}","/en/open-forum-proposals-{year}","/en/content/igf-{year}-open-forums"],
+    "lightning-talks":["/en/lightning-talks-{year}","/en/lightning-talk-proposals-{year}","/en/content/igf-{year}-lightning-talks"],
+    "day-0-events":["/en/day-0-events-{year}","/en/pre-events-{year}","/en/content/igf-{year}-day-0-events"],
+    "launches-awards":["/en/launches-awards-{year}","/en/content/igf-{year}-launches-awards"],
+    "networking":["/en/networking-sessions-{year}","/en/content/igf-{year}-networking-sessions"],
+    "main-sessions":["/en/main-sessions-{year}","/en/content/igf-{year}-main-sessions"],
+    "town-halls":["/en/town-halls-{year}","/en/town-hall-{year}","/en/content/igf-{year}-town-halls"],
+}
 DETAIL_RE=re.compile(r"igf-\d{4}-(?:ws|workshop|open-forum|lightning-talk|lightning-talk-event|day-0-event|networking-session|networking|launch-award-event|town-hall|main-session|pre-event)-\d+",re.I)
 
 def step_sessions(out_root,workers=WORKERS):
@@ -146,12 +172,12 @@ def step_sessions(out_root,workers=WORKERS):
     base=os.path.join(out_root,"01_sessions");all_tasks=[]
     for stype,templates in SESSION_TYPES.items():
         for y in range(YEAR_START,YEAR_END+1):
+            links_for_year=[];tag=f"{stype}-{y}"
             for tmpl in templates:
-                list_url=IGF_BASE+tmpl.format(year=y);tag=f"{stype}-{y}"
-                time.sleep(random.uniform(0.15,0.4))
-                r=_try_fetch(list_url)
+                list_url=IGF_BASE+tmpl.format(year=y)
+                r=_fetch(list_url)
                 if r is None:continue
-                soup=BeautifulSoup(r.text,"html.parser");seen=set();links=[]
+                soup=BeautifulSoup(r.text,"html.parser");seen=set()
                 for a in soup.find_all("a",href=True):
                     href=a.get("href","")
                     if not href or href.startswith("#"):continue
@@ -159,32 +185,24 @@ def step_sessions(out_root,workers=WORKERS):
                     if full in seen:continue
                     seen.add(full)
                     if DETAIL_RE.search(href)and"/content/"in href:
-                        if f"igf-{y}-"in href:links.append(full)
+                        if f"igf-{y}-"in href:links_for_year.append(full)
                     elif"/content/"in href and f"igf-{y}-"in href:
-                        # Fallback: catch any /content/igf-{year}-... links
                         if not any(kw in href.lower()for kw in['newsletter','call-for','registration','about','schedule','report','transcript']):
-                            links.append(full)
-                links=list(dict.fromkeys(links))
-                if not links:
-                    print(f"  [{tag}] 0 links (page OK, {len(seen)} unique hrefs)")
-                    # Print sample hrefs to help diagnose
-                    samples=[h for h in list(seen)[:8] if 'igf' in h.lower() or 'content' in h.lower()]
-                    if samples:
-                        for s in samples:print(f"      sample: {s[:120]}")
-                    else:
-                        for s in list(seen)[:5]:print(f"      sample: {s[:120]}")
-                    continue
-                print(f"  [{tag}] {len(links)} links  ({tmpl.format(year=y)})")
-                sub=os.path.join(base,tag)
-                for link in links:
-                    name=link.split("/")[-1].split("?")[0]
-                    fpath=os.path.join(sub,f"{_clean(name)}.html")
-                    all_tasks.append((link,fpath,tag))
+                            links_for_year.append(full)
+            links_for_year=list(dict.fromkeys(links_for_year))
+            if not links_for_year:
+                print(f"  [{tag}] 0 links")
+                continue
+            print(f"  [{tag}] {len(links_for_year)} links")
+            sub=os.path.join(base,tag)
+            for link in links_for_year:
+                name=link.split("/")[-1].split("?")[0]
+                fpath=os.path.join(sub,f"{_clean(name)}.html")
+                all_tasks.append((link,fpath,tag))
     if not all_tasks:print("  No session links found.");return
-    print(f"\n  Downloading {len(all_tasks)} pages with {workers} workers...")
+    print(f"\n  Downloading {len(all_tasks)} pages...")
     _download_batch(all_tasks,workers)
 
-# ===== STEP 2 & 3: REPORTS, TRANSCRIPTS, SCHEDULES (paginated) =====
 def step_reports(out_root,workers=WORKERS):
     print("\n"+"="*55+"\n  STEP 2: Reports\n"+"="*55)
     _download_yearly_pages(IGF_BASE+"/en/content/igf-{year}-report",os.path.join(out_root,"02_reports"),workers)
@@ -200,11 +218,11 @@ def step_schedules(out_root,workers=WORKERS):
 def _download_yearly_pages(url_template,out_base,workers):
     for y in range(YEAR_START,YEAR_END+1):
         seed_url=url_template.format(year=y);sub=os.path.join(out_base,str(y))
-        print(f"  [{y}] {seed_url}");page=0;total_items=0
+        print(f"  [{y}]");page=0;total_items=0
         while True:
             url=seed_url
             if page>0:sep="&"if"?"in seed_url else"?";url=f"{seed_url}{sep}page={page}"
-            r=_try_fetch(url)
+            r=_fetch(url)
             if r is None:
                 if page>0:break
                 break
@@ -225,7 +243,6 @@ def _download_yearly_pages(url_template,out_base,workers):
                     fp=os.path.join(sub,f"{_clean(full.split('/')[-1].split('?')[0])}.html")
                     page_tasks.append((full,fp,str(y)))
             if page_tasks:_download_batch(page_tasks,workers);total_items+=len(page_tasks)
-            print(f"    page {page}: {len(page_tasks)} items")
             next_link=soup.find("a",title=re.compile(r"next|next page",re.I))
             if not next_link:next_link=soup.find("a",rel="next")
             if not next_link:
@@ -233,13 +250,34 @@ def _download_yearly_pages(url_template,out_base,workers):
                 if pager:next_link=pager
             if next_link:page+=1
             else:break
-            time.sleep(random.uniform(0.3,0.8))
-        print(f"    [{y}] total: {total_items} items across {page+1} pages")
+            time.sleep(random.uniform(0.3,0.6))
+        print(f"    [{y}] {total_items} items, {page+1} pages")
+        time.sleep(random.uniform(0.5,1.0))
 
-
-# ===== STEP 5 & 6: ARCHIVED + DASHBOARD (deep crawl) =====
-ARCHIVED={2006:"/en/archived/first-igf-meeting-athens-greece",2007:"/en/archived/second-igf-meeting-rio-de-janeiro-brazil",2008:"/en/archived/the-igf-2008-meeting",2009:"/en/archived/the-igf-2009-meeting",2010:"/en/archived/the-igf-2010-meeting",2011:"/en/archived/igf-2011",2012:"/en/archived/igf-2012",2013:"/en/archived/igf-2013",2014:"/en/archived/igf-2014",2015:"/en/archived/igf-2015",2016:"/en/archived/igf-2016-enabling-inclusive-and-sustainable-growth",2017:"/en/archived/igf-2017",2018:"/en/archived/igf-2018",2019:"/en/archived/igf-2019",2020:"/en/archived/igf-2020",2021:"/en/archived/igf-2021"}
-DASHBOARD={2022:"/en/dashboard/igf-2022",2023:"/en/dashboard/igf-2023",2024:"/en/dashboard/igf-2024",2025:"/en/dashboard/igf-2025"}
+ARCHIVED={
+    2006:"/en/archived/first-igf-meeting-athens-greece",
+    2007:"/en/archived/second-igf-meeting-rio-de-janeiro-brazil",
+    2008:"/en/archived/the-igf-2008-meeting",
+    2009:"/en/archived/the-igf-2009-meeting",
+    2010:"/en/archived/the-igf-2010-meeting",
+    2011:"/en/archived/igf-2011",
+    2012:"/en/archived/igf-2012",
+    2013:"/en/archived/igf-2013",
+    2014:"/en/archived/igf-2014",
+    2015:"/en/archived/igf-2015",
+    2016:"/en/archived/igf-2016-enabling-inclusive-and-sustainable-growth",
+    2017:"/en/archived/igf-2017",
+    2018:"/en/archived/igf-2018",
+    2019:"/en/archived/igf-2019",
+    2020:"/en/archived/igf-2020",
+    2021:"/en/archived/igf-2021",
+}
+DASHBOARD={
+    2022:"/en/dashboard/igf-2022",
+    2023:"/en/dashboard/igf-2023",
+    2024:"/en/dashboard/igf-2024",
+    2025:"/en/dashboard/igf-2025",
+}
 
 def step_archived_dashboard(out_root,years=None,workers=WORKERS):
     print("\n"+"="*55+"\n  STEP 5&6: Archived+Dashboard (deep crawl)\n"+"="*55)
@@ -260,13 +298,14 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
     task_queue=Queue();task_queue.put((seed_url,0,out_dir))
     local_stats={"pages":0,"files":0,"errors":0};stats_lock=threading.Lock();running=[True]
     def _worker():
-        scraper=_create_scraper()
+        scraper=_get_tl_scraper()
         while running[0]:
             try:item=task_queue.get(timeout=3)
             except:continue
             url,depth,current_dir=item
             if not _mark_visited(url):task_queue.task_done();continue
             try:
+                _rate_wait(0.4)
                 r=scraper.get(url,timeout=25)
                 if r.status_code!=200:
                     with stats_lock:local_stats["errors"]+=1
@@ -297,28 +336,31 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                 elif depth<MAX_DEPTH and _is_igf_domain(full):
                     task_queue.put((full,depth+1,current_dir))
             task_queue.task_done()
-            time.sleep(random.uniform(0.3,0.8))
+            time.sleep(random.uniform(0.2,0.5))
     threads=[threading.Thread(target=_worker,daemon=True)for _ in range(workers)]
     for t in threads:t.start()
     last_qsize=-1;stable_count=0
     while True:
-        time.sleep(2);qsize=task_queue.qsize()
+        time.sleep(1.5);qsize=task_queue.qsize()
         with stats_lock:s=dict(local_stats)
-        if qsize!=last_qsize:
-            if s["pages"]%50==0 or qsize<10:
-                print(f"    [progress] queue={qsize} pages={s['pages']} files={s['files']}")
-            last_qsize=qsize;stable_count=0
-        else:
+        print(f"    [q={qsize}] {s['pages']}p {s['files']}f")
+        if qsize==last_qsize:
             stable_count+=1
-            if stable_count>=5 and qsize==0:break
+            if stable_count>=8 and qsize==0:break
+        else:stable_count=0
+        last_qsize=qsize
     running[0]=False
     for t in threads:t.join(timeout=10)
     with stats_lock:s=dict(local_stats)
     print(f"    DONE: {s['pages']} pages, {s['files']} files, {s['errors']} errors")
-    _add_stat("pages",s["pages"]);_add_stat("ok",s["files"])
+    _add_stat("pages",s["pages"])
 
-# ===== STEP 7: PARTICIPANTS =====
-PARTICIPANTS={2021:"https://indico.un.org/event/36215/registrations/participants",2022:"https://indico.un.org/event/1002089/registrations/participants",2023:"https://indico.un.org/event/1006568/registrations/participants",2025:"https://indico.un.org/event/1016806/registrations/participants"}
+PARTICIPANTS={
+    2021:"https://indico.un.org/event/36215/registrations/participants",
+    2022:"https://indico.un.org/event/1002089/registrations/participants",
+    2023:"https://indico.un.org/event/1006568/registrations/participants",
+    2025:"https://indico.un.org/event/1016806/registrations/participants",
+}
 
 def step_participants(out_root,workers=2):
     print("\n"+"="*55+"\n  STEP 7: Participants (indico.un.org)\n"+"="*55)
@@ -334,39 +376,51 @@ def _remove_empty_dirs(root):
             try:os.rmdir(dirpath);removed+=1;print(f"  [CLEAN] {os.path.relpath(dirpath,root)}")
             except:pass
     if removed:print(f"  Removed {removed} empty directories.")
-
-
-# ===== CLASSIFY & DEDUPLICATE =====
-TYPE_PATTERNS={"workshop":[r"igf-\d{4}-ws-\d+",r"igf-\d{4}-workshop-"],"open-forum":[r"igf-\d{4}-open-forum-",r"igf-\d{4}-of-\d+"],"lightning-talk":[r"igf-\d{4}-lightning-talk"],"day-0-event":[r"igf-\d{4}-day-0-event",r"igf-\d{4}-pre-event"],"launch-award":[r"igf-\d{4}-launch-award",r"igf-\d{4}-launches-awards"],"networking":[r"igf-\d{4}-networking"],"main-session":[r"igf-\d{4}-main-session",r"high-level-track",r"opening-ceremony",r"closing-ceremony",r"parliamentary-track",r"open-mic"],"town-hall":[r"igf-\d{4}-town-hall"],"report":[r"igf-\d{4}-report",r"session-report",r"report",r"final-report"],"transcript":[r"transcript",r"igf-\d{4}-transcript"],"schedule":[r"igf-\d{4}-schedule",r"schedule"]}
+TYPE_PATTERNS={
+    "workshop":[r"igf-\d{4}-ws-\d+",r"igf-\d{4}-workshop-"],
+    "open-forum":[r"igf-\d{4}-open-forum-",r"igf-\d{4}-of-\d+"],
+    "lightning-talk":[r"igf-\d{4}-lightning-talk"],
+    "day-0-event":[r"igf-\d{4}-day-0-event",r"igf-\d{4}-pre-event"],
+    "launch-award":[r"igf-\d{4}-launch-award",r"igf-\d{4}-launches-awards"],
+    "networking":[r"igf-\d{4}-networking"],
+    "main-session":[r"igf-\d{4}-main-session",r"high-level-track",r"opening-ceremony",r"closing-ceremony",r"parliamentary-track",r"open-mic"],
+    "town-hall":[r"igf-\d{4}-town-hall"],
+    "report":[r"igf-\d{4}-report",r"session-report",r"report",r"final-report"],
+    "transcript":[r"transcript",r"igf-\d{4}-transcript"],
+    "schedule":[r"igf-\d{4}-schedule",r"schedule"],
+}
 TYPE_RE={k:[re.compile(p,re.I)for p in v]for k,v in TYPE_PATTERNS.items()}
 
-CONTENT_RULES=[
-(["executive summary","session report","outcome document","final report","meeting report","summary report","workshop report","annual report","chair summary","rapporteur"],"report"),
-(["transcript","verbatim","proceedings","record of","meeting record"],"transcript"),
-(["schedule","agenda","programme","program overview","timetable","calendar"],"schedule"),
-(["workshop","ws #","breakout"],"workshop"),
-(["open forum","of #"],"open-forum"),
-(["lightning talk"],"lightning-talk"),
-(["day 0","day-0","pre-event","pre event"],"day-0-event"),
-(["launch","award","laureate"],"launch-award"),
-(["networking"],"networking"),
-(["main session","plenary","high-level session","high level session","opening session","closing session","opening ceremony","closing ceremony","open mic"],"main-session"),
-(["town hall","townhall"],"town-hall"),
-(["participant","registration list","attendee"],"participants"),
-(["dynamic coalition","dc session","bpf","best practice","nri","national regional","intersessional"],"dc-bpf-nri"),
-(["parliamentary","high level track","leadership panel","ministerial"],"high-level"),
-(["newcomer","orientation","introduction to igf","igf orientation"],"newcomers"),
-(["newsletter","news bulletin","igf in the news"],"news"),
-(["press release","media advisory"],"press"),
-(["call for","proposal submission","apply for","application"],"calls"),
-(["about the igf","about igf","what is the igf","igf mandate"],"about"),
-(["capacity development","capacity building","training"],"capacity-building"),
-(["policy network","policynetwork","pn on"],"policy-networks"),
-(["donor","trust fund","contribution"],"donors"),
-(["expert group","expert meeting","mag meeting","multistakeholder advisory"],"mag-eg"),
-(["village","igf village","exhibition","booth","showcase"],"village"),
-(["youth","young","students","intern","fellowship"],"youth"),
-(["accessibility","disability","inclusion"],"accessibility"),
+WEIGHTED_RULES=[
+    (["workshop","ws #","breakout","ws-"],"workshop",5),
+    (["open forum","of #","open-forum"],"open-forum",5),
+    (["lightning talk","lightning-talk","lightning talk event"],"lightning-talk",5),
+    (["day 0","day-0","pre-event","pre event","day 0 event"],"day-0-event",5),
+    (["launch","award","laureate","launches & awards"],"launch-award",4),
+    (["networking","networking session"],"networking",5),
+    (["main session","plenary","high-level session","high level session",
+      "opening session","closing session","opening ceremony","closing ceremony","open mic"],"main-session",5),
+    (["town hall","townhall"],"town-hall",5),
+    (["transcript","verbatim","proceedings","record of","meeting record"],"transcript",4),
+    (["executive summary","session report","outcome document","final report",
+      "meeting report","summary report","annual report","chair summary","rapporteur"],"report",3),
+    (["schedule","agenda","programme","program overview","timetable","calendar"],"schedule",3),
+    (["participant","registration list","attendee"],"participants",4),
+    (["dynamic coalition","dc session","bpf","best practice","nri",
+      "national regional","intersessional"],"dc-bpf-nri",4),
+    (["parliamentary","high level track","leadership panel","ministerial"],"high-level",3),
+    (["newcomer","orientation","introduction to igf","igf orientation"],"newcomers",3),
+    (["newsletter","news bulletin","igf in the news"],"news",2),
+    (["press release","media advisory"],"press",2),
+    (["call for","proposal submission","apply for","application"],"calls",2),
+    (["capacity development","capacity building","training"],"capacity-building",2),
+    (["policy network","policynetwork","pn on"],"policy-networks",2),
+    (["donor","trust fund","contribution"],"donors",2),
+    (["expert group","expert meeting","mag meeting","multistakeholder advisory"],"mag-eg",2),
+    (["village","igf village","exhibition","booth","showcase"],"village",2),
+    (["youth","young","students","intern","fellowship"],"youth",2),
+    (["accessibility","disability","inclusion"],"accessibility",2),
+    (["about the igf","about igf","what is the igf","igf mandate"],"about",1),
 ]
 
 def _classify_by_filename(fname):
@@ -381,26 +435,29 @@ def _classify_by_content(html):
         title=(soup.title.string or"")if soup.title else""
         title_low=title.lower()
         main=soup.find("main")or soup.find(id="main-content")or soup.find("body")
-        body_text=main.get_text(separator=" ",strip=True)[:3000].lower()if main else""
+        body_text=main.get_text(separator=" ",strip=True)[:5000].lower()if main else""
         search_text=title_low+" "+body_text
-        for keywords,category in CONTENT_RULES:
+        scores=defaultdict(int)
+        for keywords,category,weight in WEIGHTED_RULES:
             for kw in keywords:
                 if re.search(kw,search_text,re.I):
-                    return category
+                    scores[category]+=weight
+                    break
+        if scores:return max(scores,key=scores.get)
     except:pass
     return None
 
 def _validate_html(html,fname):
     issues=[]
-    if len(html)<500:issues.append("too_short")
+    if len(html)<400:issues.append("too_short")
     try:
         soup=BeautifulSoup(html,"html.parser")
         main=soup.find("main")or soup.find(id="main-content")or soup.find("body")
         if main:
             text=main.get_text(separator=" ",strip=True)
-            if len(text)<100:issues.append("no_body_text")
+            if len(text)<80:issues.append("no_body_text")
             tag_count=len(main.find_all())
-            if tag_count>0 and len(text)/max(tag_count,1)<5:issues.append("low_text_ratio")
+            if tag_count>0 and len(text)/max(tag_count,1)<4:issues.append("low_text_ratio")
         else:issues.append("no_main_body")
         low=html[:2000].lower()
         if"cf-browser-verify"in low or"just a moment"in low:issues.append("cloudflare_block")
@@ -411,7 +468,7 @@ def _validate_html(html,fname):
 def _content_hash(html):
     soup=BeautifulSoup(html,"html.parser")
     main=soup.find("main")or soup.find(id="main-content")or soup.find("body")or soup
-    text=main.get_text(separator=" ",strip=True)[:5000]
+    text=main.get_text(separator=" ",strip=True)[:10000]
     return hashlib.md5(text.encode()).hexdigest()
 
 def _extract_year(fname):
@@ -440,7 +497,6 @@ def _process_html_file(fp,src_root):
     except:return None
 
 def run_classify(src_dir,out_dir=None,workers=4,dry_run=False):
-    """Classify and deduplicate all HTML files from src_dir into out_dir."""
     src=os.path.abspath(src_dir)
     out=out_dir or f"igf_classified_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     out=os.path.abspath(out)
@@ -461,10 +517,10 @@ def run_classify(src_dir,out_dir=None,workers=4,dry_run=False):
             if not r["valid"]:
                 invalid_count+=1
                 for iss in r["issues"]:issue_stats[iss]+=1
-            if i%1000==0:print(f"    processed {i}/{len(html_files)} (dups={dups}, invalid={invalid_count})")
+            if i%1000==0:print(f"    {i}/{len(html_files)} (dups={dups}, invalid={invalid_count})")
     print(f"  Done: {len(results)} unique, {dups} duplicates, {invalid_count} invalid")
     if issue_stats:
-        print(f"\n  VALIDATION ISSUES:")
+        print(f"  Validation issues:")
         for iss,count in sorted(issue_stats.items(),key=lambda x:-x[1]):
             print(f"    {iss:<20s}: {count:>5d}")
     type_counts=defaultdict(int);type_year=defaultdict(lambda:defaultdict(int))
@@ -475,7 +531,7 @@ def run_classify(src_dir,out_dir=None,workers=4,dry_run=False):
         status="valid"if r["valid"]else"invalid"
         type_valid[t][status]+=1
         if r["year"]:type_year[t][r["year"]]+=1
-    print(f"\n  CLASSIFICATION ({len(results)} unique pages):")
+    print(f"\n  Classification ({len(results)} unique pages):")
     for t in sorted(type_counts.keys(),key=lambda k:-type_counts[k]):
         years_str=",".join(sorted(str(y)for y in type_year[t].keys()))
         vc=type_valid[t].get("valid",0);ic=type_valid[t].get("invalid",0)
@@ -499,7 +555,6 @@ def run_classify(src_dir,out_dir=None,workers=4,dry_run=False):
         dest=os.path.join(sub,r["name"])
         if not os.path.exists(dest):shutil.copy2(r["path"],dest);inv_copied+=1
     if inv_copied:print(f"  Invalid HTML (for inspection): {inv_copied} -> _invalid/")
-    # Copy documents
     doc_count=0
     for ext in["*.pdf","*.doc","*.docx","*.xls","*.xlsx","*.ppt","*.pptx","*.zip"]:
         for fp in Path(src).rglob(ext):
@@ -509,26 +564,163 @@ def run_classify(src_dir,out_dir=None,workers=4,dry_run=False):
     print(f"  Document files copied: {doc_count}")
     print(f"  All done -> {out}")
     return out
+def _extract_drupal_fields_json(soup):
+    fields={}
+    for elem in soup.select("[class*='field--name-field-']"):
+        field_name=None
+        for cls in elem.get('class',[]):
+            m=re.match(r'field--name-field-(.+)',cls)
+            if m:field_name=m.group(1).replace('-','_').strip('_').lower();break
+        if not field_name:continue
+        label_elem=elem.select_one('.field__label')
+        label=label_elem.get_text(strip=True)if label_elem else''
+        label=re.sub(r'\s*\(.*?\)','',label).strip()
+        items=elem.select('.field__item')
+        if not items:continue
+        contents=[]
+        for item in items:
+            links=[{'text':a.get_text(strip=True),'href':a['href']}for a in item.find_all('a',href=True)]
+            text=item.get_text(separator='\n',strip=True)
+            text=re.sub(r'\n{3,}','\n\n',text)
+            contents.append({'text':text,'links':links})
+        if field_name in fields:fields[field_name]['content'].extend(contents)
+        else:fields[field_name]={'label':label,'content':contents}
+    return fields
 
+def _extract_speakers_json(fields):
+    speakers=[]
+    for k,v in fields.items():
+        if'speaker'in k.lower():
+            for item in v.get('content',[]):
+                speakers.append({'name':item.get('text',''),'links':[l['href']for l in item.get('links',[])]})
+    return speakers
 
-# ===== MAIN =====
+def _extract_organizers_json(fields):
+    orgs=[]
+    for k,v in fields.items():
+        if'organizer'in k.lower()or'proposer'in k.lower():
+            for item in v.get('content',[]):
+                orgs.append({'name':item.get('text',''),'links':[l['href']for l in item.get('links',[])]})
+    return orgs
+
+def _extract_sdgs_json(fields):
+    sdgs=set()
+    for k,v in fields.items():
+        if'sdg'in k.lower():
+            for item in v.get('content',[]):
+                nums=re.findall(r'\b(\d{1,2})\b',item.get('text',''))
+                sdgs.update(int(n)for n in nums if 1<=int(n)<=17)
+    return sorted(sdgs)
+
+def _extract_topics_json(title,body_text,fields):
+    text=(title+' '+body_text).lower()
+    for v in fields.values():
+        for item in v.get('content',[]):text+=' '+item.get('text','').lower()
+    topics=set()
+    topic_kw={
+        'cybersecurity':['cybersecurity','cyber security'],
+        'ai':['artificial intelligence','ai governance','ai ethics','machine learning'],
+        'data':['data governance','data protection','data privacy','gdpr'],
+        'inclusion':['digital inclusion','digital divide','digital literacy'],
+        'rights':['human rights','freedom of expression','rights online'],
+        'environment':['climate change','environment','sustainability'],
+        'blockchain':['blockchain','cryptocurrency','web3','decentralized'],
+        'children':['child online','child safety','child protection'],
+        'moderation':['content moderation','platform regulation','hate speech','disinformation'],
+        'governance':['internet governance','multistakeholder','digital cooperation'],
+        'connectivity':['5g','broadband','connectivity','internet access'],
+        'economy':['e-commerce','digital economy','digital trade'],
+        'education':['digital education','e-learning','edtech'],
+        'health':['e-health','digital health','telemedicine'],
+        'iot':['internet of things','iot','smart devices'],
+        'gender':['gender','women','female empowerment'],
+        'infrastructure':['dns','domain name','icann','routing'],
+    }
+    for topic,kws in topic_kw.items():
+        for kw in kws:
+            if re.search(kw,text,re.I):topics.add(topic);break
+    return sorted(topics)
+
+def _extract_one_file(fp,src_root):
+    try:
+        fname=os.path.basename(fp)
+        with open(fp,'r',encoding='utf-8',errors='ignore')as f:html=f.read()
+        if len(html)<300:return None
+        soup=BeautifulSoup(html,'html.parser')
+        page_type=_classify_by_filename(fname)or _classify_by_content(html)or'other'
+        year=_extract_year(fname)or _extract_year(str(fp))
+        title=soup.title.string.strip()if soup.title else''
+        fields=_extract_drupal_fields_json(soup)
+        main=soup.find('main')or soup.find(id='main-content')or soup.find('body')
+        body_text=main.get_text(separator=' ',strip=True)[:5000]if main else''
+        speakers=_extract_speakers_json(fields)
+        organizers=_extract_organizers_json(fields)
+        sdgs=_extract_sdgs_json(fields)
+        topics=_extract_topics_json(title,body_text,fields)
+        field_texts={}
+        for k,v in fields.items():
+            texts=[item['text'][:2000]for item in v.get('content',[])if item.get('text')]
+            if texts:field_texts[k]={'label':v.get('label',''),'texts':texts}
+        chash=_content_hash(html)
+        return{'file':fname,'type':page_type,'year':year,'title':title,
+               'fields':field_texts,'body_text':body_text,'speakers':speakers,
+               'organizers':organizers,'sdgs':sdgs,'topics':topics,
+               'content_hash':chash,'size_bytes':len(html)}
+    except Exception as e:
+        return{'file':os.path.basename(fp),'error':str(e)}
+
+def run_extract(src_dir,out_dir=None,workers=4):
+    src=os.path.abspath(src_dir)
+    out=out_dir or f"igf_extracted_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    out=os.path.abspath(out)
+    os.makedirs(out,exist_ok=True)
+    print(f"\n{'='*55}\n  EXTRACT TO JSON\n{'='*55}")
+    print(f"  Source: {src}")
+    print(f"  Output: {out}")
+    html_files=[str(p)for p in Path(src).rglob('*.html')if'.venv'not in str(p)]
+    print(f"  Processing {len(html_files)} files...")
+    results=[];seen=set();dups=0
+    with ThreadPoolExecutor(max_workers=workers)as ex:
+        futures={ex.submit(_extract_one_file,fp,src):fp for fp in html_files}
+        for i,future in enumerate(as_completed(futures),1):
+            r=future.result()
+            if r is None:continue
+            h=r.get('content_hash','')
+            if h and h in seen:dups+=1;continue
+            if h:seen.add(h)
+            results.append(r)
+            if i%500==0:print(f"    {i}/{len(html_files)} ({len(results)} unique)")
+    print(f"  Extracted: {len(results)} unique, {dups} duplicates")
+    by_type=defaultdict(list)
+    for r in results:by_type[r.get('type','other')].append(r)
+    for t,items in sorted(by_type.items()):
+        fpath=os.path.join(out,f"{t}.json")
+        with open(fpath,'w',encoding='utf-8')as f:json.dump(items,f,ensure_ascii=False,indent=2)
+        print(f"    {t}.json -> {len(items)} pages")
+    all_path=os.path.join(out,'all.json')
+    with open(all_path,'w',encoding='utf-8')as f:json.dump(results,f,ensure_ascii=False,indent=2)
+    print(f"    all.json -> {len(results)} pages")
+    print(f"  Done -> {out}")
+    return out
+
 STEPS=["sessions","reports","transcripts","schedules","archived","dashboard","participants"]
 
 def main():
-    p=argparse.ArgumentParser(description="IGF Complete Scraper + Classifier")
+    p=argparse.ArgumentParser(description="IGF Complete Scraper + Classifier + Extractor")
     p.add_argument("--step",help="Comma-sep: "+",".join(STEPS))
     p.add_argument("--year",type=int,help="Single year for archived/dashboard")
     p.add_argument("--workers",type=int,default=WORKERS,help=f"Thread count (default {WORKERS})")
-    p.add_argument("--output",default=None,help="Output directory for scraped data")
+    p.add_argument("--output",default=None,help="Output directory")
     p.add_argument("--dry-run",action="store_true",help="Show plan, no downloads")
     p.add_argument("--no-clean",action="store_true",help="Skip empty dir cleanup")
-    p.add_argument("--no-classify",action="store_true",help="Skip classify step after scraping")
-    p.add_argument("--classify-only",action="store_true",help="Only classify existing data (no scrape)")
+    p.add_argument("--no-classify",action="store_true",help="Skip classify step")
+    p.add_argument("--no-extract",action="store_true",help="Skip JSON extraction")
+    p.add_argument("--classify-only",action="store_true",help="Only classify existing data")
     p.add_argument("--classify-dir",default=None,help="Source dir for --classify-only")
     p.add_argument("--classify-out",default=None,help="Output dir for classification")
+    p.add_argument("--extract-out",default=None,help="Output dir for JSON extraction")
     args=p.parse_args()
 
-    # Classify-only mode
     if args.classify_only:
         src=args.classify_dir
         if not src:
@@ -538,12 +730,11 @@ def main():
         run_classify(src,args.classify_out,args.workers)
         return
 
-    # Scrape mode
     do=set(args.step.split(","))if args.step else set(STEPS)
     workers=args.workers
     out=args.output or f"igf_full_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     print("\n"+"#"*55)
-    print("  IGF COMPLETE SCRAPER + CLASSIFIER")
+    print("  IGF COMPLETE SCRAPER + CLASSIFIER + EXTRACTOR")
     print(f"  Steps: {', '.join(sorted(do))}")
     print(f"  Workers: {workers}")
     print(f"  Year range: {YEAR_START}-{YEAR_END}")
@@ -572,8 +763,9 @@ def main():
     print(f"  Output: {os.path.abspath(out)}")
     print("#"*55)
 
-    # Auto-classify after scraping
     if not args.no_classify:
-        run_classify(out,args.classify_out,workers)
+        class_out=run_classify(out,args.classify_out,workers)
+        if not args.no_extract:
+            run_extract(class_out,args.extract_out,workers)
 
 if __name__=="__main__":main()
