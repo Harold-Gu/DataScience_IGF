@@ -1,7 +1,4 @@
-"""IGF Complete Scraper + Classifier (Multi-threaded, All-in-One)
-Downloads ALL IGF data 2006-2025, then classifies & deduplicates.
-Usage: python scrape_igf.py [--step ...] [--workers 5] [--no-classify] [--classify-only --dir ...] [--dry-run]
-"""
+
 import os,re,sys,time,random,argparse,threading,hashlib,shutil
 from datetime import datetime
 from urllib.parse import urljoin,urlparse
