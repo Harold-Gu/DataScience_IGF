@@ -139,9 +139,7 @@ def _download_batch(tasks,workers):
         result=_download_one(scraper,url,fpath)
         with lock:
             done[0]+=1
-            if result=="ok":_stats["ok"]=_stats.get("ok",0)+1
-            elif result=="fail":_stats["fail"]=_stats.get("fail",0)+1
-            else:_stats["skip"]=_stats.get("skip",0)+1
+            _add_stat(result)
             if done[0]%200==0 or done[0]==total:
                 print(f"      {done[0]}/{total}")
         return result
@@ -223,9 +221,7 @@ def _download_yearly_pages(url_template,out_base,workers):
             url=seed_url
             if page>0:sep="&"if"?"in seed_url else"?";url=f"{seed_url}{sep}page={page}"
             r=_fetch(url)
-            if r is None:
-                if page>0:break
-                break
+            if r is None:break
             html=r.text;soup=BeautifulSoup(html,"html.parser")
             pname=f"page_{page}"if page>0 else"index"
             ppath=os.path.join(sub,f"{pname}.html");os.makedirs(sub,exist_ok=True)
@@ -304,16 +300,11 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
             except:continue
             url,depth,current_dir=item
             if not _mark_visited(url):task_queue.task_done();continue
-            try:
-                _rate_wait(0.4)
-                r=scraper.get(url,timeout=25)
-                if r.status_code!=200:
-                    with stats_lock:local_stats["errors"]+=1
-                    task_queue.task_done();continue
-                html=r.text
-            except:
+            r=_fetch(url)
+            if r is None:
                 with stats_lock:local_stats["errors"]+=1
                 task_queue.task_done();continue
+            html=r.text
             name=url.split("/")[-1].split("?")[0]or f"page_{abs(hash(url))}"
             page_path=os.path.join(current_dir,f"{_clean(name)}.html")
             if not os.path.exists(page_path):
@@ -423,6 +414,13 @@ WEIGHTED_RULES=[
     (["about the igf","about igf","what is the igf","igf mandate"],"about",1),
 ]
 
+TYPE_PRIORITY={"workshop":0,"open-forum":1,"lightning-talk":2,"day-0-event":3,
+    "networking":4,"main-session":5,"town-hall":6,"launch-award":7,
+    "transcript":8,"report":9,"schedule":10,"participants":11,"dc-bpf-nri":12,
+    "high-level":13,"newcomers":14,"news":15,"press":16,"calls":17,
+    "capacity-building":18,"policy-networks":19,"donors":20,"mag-eg":21,
+    "village":22,"youth":23,"accessibility":24,"about":25}
+
 def _classify_by_filename(fname):
     for t,patterns in TYPE_RE.items():
         for p in patterns:
@@ -443,7 +441,7 @@ def _classify_by_content(html):
                 if re.search(kw,search_text,re.I):
                     scores[category]+=weight
                     break
-        if scores:return max(scores,key=scores.get)
+        if scores:return max(scores,key=lambda t:(scores[t],-TYPE_PRIORITY.get(t,99)))
     except:pass
     return None
 
