@@ -1,0 +1,582 @@
+"""IGF Complete Scraper + Classifier (Multi-threaded, All-in-One)
+Downloads ALL IGF data 2006-2025, then classifies & deduplicates.
+Usage: python scrape_igf.py [--step ...] [--workers 5] [--no-classify] [--classify-only --dir ...] [--dry-run]
+"""
+import os,re,sys,time,random,argparse,threading,hashlib,shutil
+from datetime import datetime
+from urllib.parse import urljoin,urlparse
+from queue import Queue
+from collections import defaultdict
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor,as_completed
+from bs4 import BeautifulSoup
+import cloudscraper
+
+# ===== GLOBAL DEDUP STATE =====
+_visited_lock=threading.Lock()
+_visited_urls=set()
+_stats_lock=threading.Lock()
+_stats={"ok":0,"fail":0,"skip":0,"pages":0}
+
+def _mark_visited(url):
+    with _visited_lock:
+        if url in _visited_urls:return False
+        _visited_urls.add(url);return True
+def _add_stat(key,n=1):
+    with _stats_lock:_stats[key]=_stats.get(key,0)+n
+def _print_stat():
+    with _stats_lock:s=dict(_stats)
+    print(f"      [ok={s['ok']} fail={s['fail']} skip={s['skip']} pages={s['pages']}]")
+
+# ===== CONFIG =====
+IGF_BASE="https://www.intgovforum.org"
+WORKERS=5;MAX_DEPTH=3;YEAR_START=2006;YEAR_END=2025
+
+def _create_scraper():
+    return cloudscraper.create_scraper(browser={"browser":"chrome","platform":"windows","desktop":True})
+_discovery_scraper=None
+def _get_discovery_scraper():
+    global _discovery_scraper
+    if _discovery_scraper is None:_discovery_scraper=_create_scraper()
+    return _discovery_scraper
+
+def _try_fetch(url,timeout=20):
+    """Fetch a page for link discovery with retry on 429."""
+    for attempt in range(2):
+        try:
+            r=_get_discovery_scraper().get(url,timeout=timeout)
+            if r.status_code==404:return None
+            if r.status_code==429:
+                time.sleep(1.5);continue
+            r.raise_for_status()
+            if len(r.text)<500:
+                return None
+            return r
+        except Exception as e:
+            if attempt<1:time.sleep(1);continue
+            return None
+    return None
+
+# ===== HELPERS =====
+def _clean(s):
+    return re.sub(r'[\\/*?:"<>|]',"",str(s)).replace("\n"," ").strip()
+def _ext(link):
+    low=link.lower()
+    for e in[".pdf",".doc",".docx",".xls",".xlsx",".ppt",".pptx",".zip"]:
+        if low.endswith(e):return e
+    if"filedepot_download"in low:return".bin"
+    return".html"
+def _is_file(link):return _ext(link)!=".html"
+def _same_domain(url,base):
+    try:
+        a=urlparse(url).netloc.replace("www.","")
+        b=urlparse(base).netloc.replace("www.","")
+        return a==b
+    except:return False
+def _is_igf_domain(url):
+    try:
+        netloc=urlparse(url).netloc.replace("www.","")
+        return netloc in{"intgovforum.org","un.org","indico.un.org"}or netloc.endswith(".intgovforum.org")or netloc.endswith(".un.org")
+    except:return False
+def _make_url(href,base=IGF_BASE):
+    if href.startswith("http"):return href
+    if href.startswith("/"):return base+href
+    return urljoin(base,href)
+
+def _download_one(scraper,url,fpath,max_retries=3):
+    if not _mark_visited(url):return"skip"
+    if os.path.exists(fpath)and os.path.getsize(fpath)>0:return"skip"
+    os.makedirs(os.path.dirname(fpath),exist_ok=True)
+    for attempt in range(max_retries):
+        try:
+            r=scraper.get(url,timeout=30)
+            if r.status_code==429:
+                time.sleep(2*(attempt+1))
+                continue
+            if r.status_code in (502,503,504):
+                time.sleep(1.5)
+                continue
+            r.raise_for_status()
+            is_bin=_ext(url)in{".pdf",".doc",".docx",".xls",".xlsx",".ppt",".pptx",".zip",".bin"}
+            if is_bin:
+                if len(r.content)<100:
+                    if attempt<max_retries-1:time.sleep(1);continue
+                    return"fail"
+                with open(fpath,"wb")as f:f.write(r.content)
+            else:
+                if len(r.text)<300:
+                    if attempt<max_retries-1:time.sleep(1);continue
+                    return"fail"
+                with open(fpath,"w",encoding="utf-8")as f:f.write(r.text)
+            return"ok"
+        except Exception as e:
+            if attempt<max_retries-1:
+                time.sleep(1.5)
+                continue
+            return"fail"
+    return"fail"
+
+def _download_batch(tasks,workers):
+    total=len(tasks);done=[0];lock=threading.Lock();_tl_scraper=threading.local()
+    def _get_tl_scraper():
+        if not hasattr(_tl_scraper,'s'):_tl_scraper.s=_create_scraper()
+        return _tl_scraper.s
+    def _worker_dl(url,fpath):
+        scraper=_get_tl_scraper();result=_download_one(scraper,url,fpath)
+        with lock:
+            done[0]+=1
+            if result=="ok":_stats["ok"]=_stats.get("ok",0)+1
+            elif result=="fail":_stats["fail"]=_stats.get("fail",0)+1
+            else:_stats["skip"]=_stats.get("skip",0)+1
+        return result
+    with ThreadPoolExecutor(max_workers=workers)as ex:
+        futures={}
+        for url,fpath,_ in tasks:
+            futures[ex.submit(_worker_dl,url,fpath)]=(url,fpath)
+            time.sleep(random.uniform(0.1,0.3))
+        for i,future in enumerate(as_completed(futures),1):
+            if i%100==0:_print_stat();print(f"      progress: {i}/{total}")
+            time.sleep(random.uniform(0.05,0.1))
+    _print_stat()
+
+
+# ===== STEP 1: SESSIONS =====
+SESSION_TYPES={"workshops":["/en/workshop-proposals-{year}","/en/workshops-{year}","/en/content/igf-{year}-workshops"],"open-forums":["/en/open-forums-{year}","/en/open-forum-proposals-{year}","/en/content/igf-{year}-open-forums"],"lightning-talks":["/en/lightning-talks-{year}","/en/lightning-talk-proposals-{year}","/en/content/igf-{year}-lightning-talks"],"day-0-events":["/en/day-0-events-{year}","/en/pre-events-{year}","/en/content/igf-{year}-day-0-events"],"launches-awards":["/en/launches-awards-{year}","/en/content/igf-{year}-launches-awards"],"networking":["/en/networking-sessions-{year}","/en/content/igf-{year}-networking-sessions"],"main-sessions":["/en/main-sessions-{year}","/en/content/igf-{year}-main-sessions"],"town-halls":["/en/town-halls-{year}","/en/town-hall-{year}","/en/content/igf-{year}-town-halls"]}
+DETAIL_RE=re.compile(r"igf-\d{4}-(?:ws|workshop|open-forum|lightning-talk|lightning-talk-event|day-0-event|networking-session|networking|launch-award-event|town-hall|main-session|pre-event)-\d+",re.I)
+
+def step_sessions(out_root,workers=WORKERS):
+    print("\n"+"="*55+"\n  STEP 1: Sessions (2006-2025, 8 types)\n"+"="*55)
+    base=os.path.join(out_root,"01_sessions");all_tasks=[]
+    for stype,templates in SESSION_TYPES.items():
+        for y in range(YEAR_START,YEAR_END+1):
+            for tmpl in templates:
+                list_url=IGF_BASE+tmpl.format(year=y);tag=f"{stype}-{y}"
+                time.sleep(random.uniform(0.15,0.4))
+                r=_try_fetch(list_url)
+                if r is None:continue
+                soup=BeautifulSoup(r.text,"html.parser");seen=set();links=[]
+                for a in soup.find_all("a",href=True):
+                    href=a.get("href","")
+                    if not href or href.startswith("#"):continue
+                    full=_make_url(href)
+                    if full in seen:continue
+                    seen.add(full)
+                    if DETAIL_RE.search(href)and"/content/"in href:
+                        if f"igf-{y}-"in href:links.append(full)
+                    elif"/content/"in href and f"igf-{y}-"in href:
+                        # Fallback: catch any /content/igf-{year}-... links
+                        if not any(kw in href.lower()for kw in['newsletter','call-for','registration','about','schedule','report','transcript']):
+                            links.append(full)
+                links=list(dict.fromkeys(links))
+                if not links:
+                    print(f"  [{tag}] 0 links (page OK, {len(seen)} unique hrefs)")
+                    # Print sample hrefs to help diagnose
+                    samples=[h for h in list(seen)[:8] if 'igf' in h.lower() or 'content' in h.lower()]
+                    if samples:
+                        for s in samples:print(f"      sample: {s[:120]}")
+                    else:
+                        for s in list(seen)[:5]:print(f"      sample: {s[:120]}")
+                    continue
+                print(f"  [{tag}] {len(links)} links  ({tmpl.format(year=y)})")
+                sub=os.path.join(base,tag)
+                for link in links:
+                    name=link.split("/")[-1].split("?")[0]
+                    fpath=os.path.join(sub,f"{_clean(name)}.html")
+                    all_tasks.append((link,fpath,tag))
+    if not all_tasks:print("  No session links found.");return
+    print(f"\n  Downloading {len(all_tasks)} pages with {workers} workers...")
+    _download_batch(all_tasks,workers)
+
+# ===== STEP 2 & 3: REPORTS, TRANSCRIPTS, SCHEDULES (paginated) =====
+def step_reports(out_root,workers=WORKERS):
+    print("\n"+"="*55+"\n  STEP 2: Reports\n"+"="*55)
+    _download_yearly_pages(IGF_BASE+"/en/content/igf-{year}-report",os.path.join(out_root,"02_reports"),workers)
+
+def step_transcripts(out_root,workers=WORKERS):
+    print("\n"+"="*55+"\n  STEP 3: Transcripts\n"+"="*55)
+    _download_yearly_pages(IGF_BASE+"/en/igf-{year}-transcripts",os.path.join(out_root,"03_transcripts"),workers)
+
+def step_schedules(out_root,workers=WORKERS):
+    print("\n"+"="*55+"\n  STEP 4: Schedules\n"+"="*55)
+    _download_yearly_pages(IGF_BASE+"/en/content/igf-{year}-schedule",os.path.join(out_root,"04_schedules"),workers)
+
+def _download_yearly_pages(url_template,out_base,workers):
+    for y in range(YEAR_START,YEAR_END+1):
+        seed_url=url_template.format(year=y);sub=os.path.join(out_base,str(y))
+        print(f"  [{y}] {seed_url}");page=0;total_items=0
+        while True:
+            url=seed_url
+            if page>0:sep="&"if"?"in seed_url else"?";url=f"{seed_url}{sep}page={page}"
+            r=_try_fetch(url)
+            if r is None:
+                if page>0:break
+                break
+            html=r.text;soup=BeautifulSoup(html,"html.parser")
+            pname=f"page_{page}"if page>0 else"index"
+            ppath=os.path.join(sub,f"{pname}.html");os.makedirs(sub,exist_ok=True)
+            if not os.path.exists(ppath):
+                with open(ppath,"w",encoding="utf-8")as f:f.write(html)
+            main=soup.find("main")or soup.find(id="main-content")or soup;page_tasks=[]
+            for a in main.find_all("a",href=True):
+                href=a["href"].strip()
+                if not href or href.startswith("#"):continue
+                full=_make_url(href,seed_url)
+                if _is_file(full):
+                    fp=os.path.join(sub,_clean(full.split("/")[-1].split("?")[0]))
+                    page_tasks.append((full,fp,str(y)))
+                elif _same_domain(full,IGF_BASE)and"/content/"in full:
+                    fp=os.path.join(sub,f"{_clean(full.split('/')[-1].split('?')[0])}.html")
+                    page_tasks.append((full,fp,str(y)))
+            if page_tasks:_download_batch(page_tasks,workers);total_items+=len(page_tasks)
+            print(f"    page {page}: {len(page_tasks)} items")
+            next_link=soup.find("a",title=re.compile(r"next|next page",re.I))
+            if not next_link:next_link=soup.find("a",rel="next")
+            if not next_link:
+                pager=soup.select_one(".pager__item--next a,.pagination .next a,li.next a")
+                if pager:next_link=pager
+            if next_link:page+=1
+            else:break
+            time.sleep(random.uniform(0.3,0.8))
+        print(f"    [{y}] total: {total_items} items across {page+1} pages")
+
+
+# ===== STEP 5 & 6: ARCHIVED + DASHBOARD (deep crawl) =====
+ARCHIVED={2006:"/en/archived/first-igf-meeting-athens-greece",2007:"/en/archived/second-igf-meeting-rio-de-janeiro-brazil",2008:"/en/archived/the-igf-2008-meeting",2009:"/en/archived/the-igf-2009-meeting",2010:"/en/archived/the-igf-2010-meeting",2011:"/en/archived/igf-2011",2012:"/en/archived/igf-2012",2013:"/en/archived/igf-2013",2014:"/en/archived/igf-2014",2015:"/en/archived/igf-2015",2016:"/en/archived/igf-2016-enabling-inclusive-and-sustainable-growth",2017:"/en/archived/igf-2017",2018:"/en/archived/igf-2018",2019:"/en/archived/igf-2019",2020:"/en/archived/igf-2020",2021:"/en/archived/igf-2021"}
+DASHBOARD={2022:"/en/dashboard/igf-2022",2023:"/en/dashboard/igf-2023",2024:"/en/dashboard/igf-2024",2025:"/en/dashboard/igf-2025"}
+
+def step_archived_dashboard(out_root,years=None,workers=WORKERS):
+    print("\n"+"="*55+"\n  STEP 5&6: Archived+Dashboard (deep crawl)\n"+"="*55)
+    for y,path in ARCHIVED.items():
+        if years and y not in years:continue
+        sub=os.path.join(out_root,"05_archived",str(y))
+        print(f"\n  [{y}] {IGF_BASE}{path}")
+        _deep_crawl_parallel(IGF_BASE+path,sub,workers)
+    for y,path in DASHBOARD.items():
+        if years and y not in years:continue
+        sub=os.path.join(out_root,"06_dashboard",str(y))
+        print(f"\n  [{y}] {IGF_BASE}{path}")
+        _deep_crawl_parallel(IGF_BASE+path,sub,workers)
+
+def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
+    os.makedirs(out_dir,exist_ok=True)
+    files_dir=os.path.join(out_dir,"files");os.makedirs(files_dir,exist_ok=True)
+    task_queue=Queue();task_queue.put((seed_url,0,out_dir))
+    local_stats={"pages":0,"files":0,"errors":0};stats_lock=threading.Lock();running=[True]
+    def _worker():
+        scraper=_create_scraper()
+        while running[0]:
+            try:item=task_queue.get(timeout=3)
+            except:continue
+            url,depth,current_dir=item
+            if not _mark_visited(url):task_queue.task_done();continue
+            try:
+                r=scraper.get(url,timeout=25)
+                if r.status_code!=200:
+                    with stats_lock:local_stats["errors"]+=1
+                    task_queue.task_done();continue
+                html=r.text
+            except:
+                with stats_lock:local_stats["errors"]+=1
+                task_queue.task_done();continue
+            name=url.split("/")[-1].split("?")[0]or f"page_{abs(hash(url))}"
+            page_path=os.path.join(current_dir,f"{_clean(name)}.html")
+            if not os.path.exists(page_path):
+                try:
+                    with open(page_path,"w",encoding="utf-8")as f:f.write(html)
+                except:pass
+            with stats_lock:local_stats["pages"]+=1
+            soup=BeautifulSoup(html,"html.parser")
+            main=soup.find("main")or soup.find(id="main-content")or soup
+            for a in main.find_all("a",href=True):
+                href=a["href"].strip()
+                if not href or href.startswith("#")or href.startswith("javascript:"):continue
+                if"mailto:"in href:continue
+                full=_make_url(href,url)
+                if _is_file(full):
+                    fname=_clean(full.split("/")[-1].split("?")[0])
+                    fpath=os.path.join(files_dir,fname)
+                    if _download_one(scraper,full,fpath)=="ok":
+                        with stats_lock:local_stats["files"]+=1
+                elif depth<MAX_DEPTH and _is_igf_domain(full):
+                    task_queue.put((full,depth+1,current_dir))
+            task_queue.task_done()
+            time.sleep(random.uniform(0.3,0.8))
+    threads=[threading.Thread(target=_worker,daemon=True)for _ in range(workers)]
+    for t in threads:t.start()
+    last_qsize=-1;stable_count=0
+    while True:
+        time.sleep(2);qsize=task_queue.qsize()
+        with stats_lock:s=dict(local_stats)
+        if qsize!=last_qsize:
+            if s["pages"]%50==0 or qsize<10:
+                print(f"    [progress] queue={qsize} pages={s['pages']} files={s['files']}")
+            last_qsize=qsize;stable_count=0
+        else:
+            stable_count+=1
+            if stable_count>=5 and qsize==0:break
+    running[0]=False
+    for t in threads:t.join(timeout=10)
+    with stats_lock:s=dict(local_stats)
+    print(f"    DONE: {s['pages']} pages, {s['files']} files, {s['errors']} errors")
+    _add_stat("pages",s["pages"]);_add_stat("ok",s["files"])
+
+# ===== STEP 7: PARTICIPANTS =====
+PARTICIPANTS={2021:"https://indico.un.org/event/36215/registrations/participants",2022:"https://indico.un.org/event/1002089/registrations/participants",2023:"https://indico.un.org/event/1006568/registrations/participants",2025:"https://indico.un.org/event/1016806/registrations/participants"}
+
+def step_participants(out_root,workers=2):
+    print("\n"+"="*55+"\n  STEP 7: Participants (indico.un.org)\n"+"="*55)
+    base=os.path.join(out_root,"07_participants")
+    tasks=[(url,os.path.join(base,str(y),"participants.html"),str(y))for y,url in PARTICIPANTS.items()]
+    _download_batch(tasks,workers)
+
+def _remove_empty_dirs(root):
+    removed=0
+    for dirpath,dirnames,filenames in os.walk(root,topdown=False):
+        if dirpath==root:continue
+        if not dirnames and not filenames:
+            try:os.rmdir(dirpath);removed+=1;print(f"  [CLEAN] {os.path.relpath(dirpath,root)}")
+            except:pass
+    if removed:print(f"  Removed {removed} empty directories.")
+
+
+# ===== CLASSIFY & DEDUPLICATE =====
+TYPE_PATTERNS={"workshop":[r"igf-\d{4}-ws-\d+",r"igf-\d{4}-workshop-"],"open-forum":[r"igf-\d{4}-open-forum-",r"igf-\d{4}-of-\d+"],"lightning-talk":[r"igf-\d{4}-lightning-talk"],"day-0-event":[r"igf-\d{4}-day-0-event",r"igf-\d{4}-pre-event"],"launch-award":[r"igf-\d{4}-launch-award",r"igf-\d{4}-launches-awards"],"networking":[r"igf-\d{4}-networking"],"main-session":[r"igf-\d{4}-main-session",r"high-level-track",r"opening-ceremony",r"closing-ceremony",r"parliamentary-track",r"open-mic"],"town-hall":[r"igf-\d{4}-town-hall"],"report":[r"igf-\d{4}-report",r"session-report",r"report",r"final-report"],"transcript":[r"transcript",r"igf-\d{4}-transcript"],"schedule":[r"igf-\d{4}-schedule",r"schedule"]}
+TYPE_RE={k:[re.compile(p,re.I)for p in v]for k,v in TYPE_PATTERNS.items()}
+
+CONTENT_RULES=[
+(["executive summary","session report","outcome document","final report","meeting report","summary report","workshop report","annual report","chair summary","rapporteur"],"report"),
+(["transcript","verbatim","proceedings","record of","meeting record"],"transcript"),
+(["schedule","agenda","programme","program overview","timetable","calendar"],"schedule"),
+(["workshop","ws #","breakout"],"workshop"),
+(["open forum","of #"],"open-forum"),
+(["lightning talk"],"lightning-talk"),
+(["day 0","day-0","pre-event","pre event"],"day-0-event"),
+(["launch","award","laureate"],"launch-award"),
+(["networking"],"networking"),
+(["main session","plenary","high-level session","high level session","opening session","closing session","opening ceremony","closing ceremony","open mic"],"main-session"),
+(["town hall","townhall"],"town-hall"),
+(["participant","registration list","attendee"],"participants"),
+(["dynamic coalition","dc session","bpf","best practice","nri","national regional","intersessional"],"dc-bpf-nri"),
+(["parliamentary","high level track","leadership panel","ministerial"],"high-level"),
+(["newcomer","orientation","introduction to igf","igf orientation"],"newcomers"),
+(["newsletter","news bulletin","igf in the news"],"news"),
+(["press release","media advisory"],"press"),
+(["call for","proposal submission","apply for","application"],"calls"),
+(["about the igf","about igf","what is the igf","igf mandate"],"about"),
+(["capacity development","capacity building","training"],"capacity-building"),
+(["policy network","policynetwork","pn on"],"policy-networks"),
+(["donor","trust fund","contribution"],"donors"),
+(["expert group","expert meeting","mag meeting","multistakeholder advisory"],"mag-eg"),
+(["village","igf village","exhibition","booth","showcase"],"village"),
+(["youth","young","students","intern","fellowship"],"youth"),
+(["accessibility","disability","inclusion"],"accessibility"),
+]
+
+def _classify_by_filename(fname):
+    for t,patterns in TYPE_RE.items():
+        for p in patterns:
+            if p.search(fname):return t
+    return None
+
+def _classify_by_content(html):
+    try:
+        soup=BeautifulSoup(html,"html.parser")
+        title=(soup.title.string or"")if soup.title else""
+        title_low=title.lower()
+        main=soup.find("main")or soup.find(id="main-content")or soup.find("body")
+        body_text=main.get_text(separator=" ",strip=True)[:3000].lower()if main else""
+        search_text=title_low+" "+body_text
+        for keywords,category in CONTENT_RULES:
+            for kw in keywords:
+                if re.search(kw,search_text,re.I):
+                    return category
+    except:pass
+    return None
+
+def _validate_html(html,fname):
+    issues=[]
+    if len(html)<500:issues.append("too_short")
+    try:
+        soup=BeautifulSoup(html,"html.parser")
+        main=soup.find("main")or soup.find(id="main-content")or soup.find("body")
+        if main:
+            text=main.get_text(separator=" ",strip=True)
+            if len(text)<100:issues.append("no_body_text")
+            tag_count=len(main.find_all())
+            if tag_count>0 and len(text)/max(tag_count,1)<5:issues.append("low_text_ratio")
+        else:issues.append("no_main_body")
+        low=html[:2000].lower()
+        if"cf-browser-verify"in low or"just a moment"in low:issues.append("cloudflare_block")
+        if"access denied"in low and len(html)<2000:issues.append("access_denied")
+    except:issues.append("parse_error")
+    return issues
+
+def _content_hash(html):
+    soup=BeautifulSoup(html,"html.parser")
+    main=soup.find("main")or soup.find(id="main-content")or soup.find("body")or soup
+    text=main.get_text(separator=" ",strip=True)[:5000]
+    return hashlib.md5(text.encode()).hexdigest()
+
+def _extract_year(fname):
+    m=re.search(r"(20\d{2})",fname)
+    if m:
+        y=int(m.group(1))
+        if 2006<=y<=2025:return y
+    for part in fname.replace("\\","/").split("/"):
+        m2=re.search(r"(20\d{2})",part)
+        if m2:
+            y2=int(m2.group(1))
+            if 2006<=y2<=2025:return y2
+    return None
+
+def _process_html_file(fp,src_root):
+    try:
+        fname=os.path.basename(fp)
+        with open(fp,"r",encoding="utf-8",errors="ignore")as f:html=f.read()
+        if len(html)<300:return None
+        ctype=_classify_by_filename(fname)or _classify_by_content(html)or"other"
+        chash=_content_hash(html)
+        year=_extract_year(fname)or _extract_year(str(fp))
+        issues=_validate_html(html,fname)
+        is_valid=len(issues)==0
+        return{"path":fp,"name":fname,"type":ctype,"hash":chash,"year":year,"size":len(html),"valid":is_valid,"issues":issues}
+    except:return None
+
+def run_classify(src_dir,out_dir=None,workers=4,dry_run=False):
+    """Classify and deduplicate all HTML files from src_dir into out_dir."""
+    src=os.path.abspath(src_dir)
+    out=out_dir or f"igf_classified_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    out=os.path.abspath(out)
+    print(f"\n{'='*55}\n  CLASSIFY & DEDUP\n{'='*55}")
+    print(f"  Source: {src}")
+    print(f"  Output: {out}")
+    html_files=[str(p)for p in Path(src).rglob("*.html")if".venv"not in str(p)]
+    print(f"  Scanning {len(html_files)} HTML files...")
+    results=[];seen_hashes=set();dups=0;invalid_count=0
+    issue_stats=defaultdict(int)
+    with ThreadPoolExecutor(max_workers=workers)as ex:
+        futures={ex.submit(_process_html_file,fp,src):fp for fp in html_files}
+        for i,future in enumerate(as_completed(futures),1):
+            r=future.result()
+            if r is None:continue
+            if r["hash"]in seen_hashes:dups+=1;continue
+            seen_hashes.add(r["hash"]);results.append(r)
+            if not r["valid"]:
+                invalid_count+=1
+                for iss in r["issues"]:issue_stats[iss]+=1
+            if i%1000==0:print(f"    processed {i}/{len(html_files)} (dups={dups}, invalid={invalid_count})")
+    print(f"  Done: {len(results)} unique, {dups} duplicates, {invalid_count} invalid")
+    if issue_stats:
+        print(f"\n  VALIDATION ISSUES:")
+        for iss,count in sorted(issue_stats.items(),key=lambda x:-x[1]):
+            print(f"    {iss:<20s}: {count:>5d}")
+    type_counts=defaultdict(int);type_year=defaultdict(lambda:defaultdict(int))
+    type_valid=defaultdict(lambda:defaultdict(int))
+    for r in results:
+        t=r["type"];y=r["year"]or"unknown"
+        type_counts[t]+=1
+        status="valid"if r["valid"]else"invalid"
+        type_valid[t][status]+=1
+        if r["year"]:type_year[t][r["year"]]+=1
+    print(f"\n  CLASSIFICATION ({len(results)} unique pages):")
+    for t in sorted(type_counts.keys(),key=lambda k:-type_counts[k]):
+        years_str=",".join(sorted(str(y)for y in type_year[t].keys()))
+        vc=type_valid[t].get("valid",0);ic=type_valid[t].get("invalid",0)
+        flag=" !"if ic>0 else""
+        print(f"    {t:<22s}: {type_counts[t]:>5d}  (valid={vc}, invalid={ic}){flag}  [{years_str}]")
+    if dry_run:print("\n  [Dry run - no files copied]");return out
+    print(f"\n  Copying to {out} (valid pages only)...")
+    total_copied=0
+    for r in results:
+        if not r["valid"]:continue
+        t=r["type"];y=r["year"]or"unknown"
+        dest_dir=os.path.join(out,t,str(y));os.makedirs(dest_dir,exist_ok=True)
+        dest=os.path.join(dest_dir,r["name"])
+        if not os.path.exists(dest):shutil.copy2(r["path"],dest);total_copied+=1
+    print(f"  Valid HTML copied: {total_copied}")
+    inv_dir=os.path.join(out,"_invalid");os.makedirs(inv_dir,exist_ok=True)
+    inv_copied=0
+    for r in results:
+        if r["valid"]:continue
+        sub=os.path.join(inv_dir,r["type"]);os.makedirs(sub,exist_ok=True)
+        dest=os.path.join(sub,r["name"])
+        if not os.path.exists(dest):shutil.copy2(r["path"],dest);inv_copied+=1
+    if inv_copied:print(f"  Invalid HTML (for inspection): {inv_copied} -> _invalid/")
+    # Copy documents
+    doc_count=0
+    for ext in["*.pdf","*.doc","*.docx","*.xls","*.xlsx","*.ppt","*.pptx","*.zip"]:
+        for fp in Path(src).rglob(ext):
+            dest_dir=os.path.join(out,"documents");os.makedirs(dest_dir,exist_ok=True)
+            dest=os.path.join(dest_dir,os.path.basename(fp))
+            if not os.path.exists(dest):shutil.copy2(str(fp),dest);doc_count+=1
+    print(f"  Document files copied: {doc_count}")
+    print(f"  All done -> {out}")
+    return out
+
+
+# ===== MAIN =====
+STEPS=["sessions","reports","transcripts","schedules","archived","dashboard","participants"]
+
+def main():
+    p=argparse.ArgumentParser(description="IGF Complete Scraper + Classifier")
+    p.add_argument("--step",help="Comma-sep: "+",".join(STEPS))
+    p.add_argument("--year",type=int,help="Single year for archived/dashboard")
+    p.add_argument("--workers",type=int,default=WORKERS,help=f"Thread count (default {WORKERS})")
+    p.add_argument("--output",default=None,help="Output directory for scraped data")
+    p.add_argument("--dry-run",action="store_true",help="Show plan, no downloads")
+    p.add_argument("--no-clean",action="store_true",help="Skip empty dir cleanup")
+    p.add_argument("--no-classify",action="store_true",help="Skip classify step after scraping")
+    p.add_argument("--classify-only",action="store_true",help="Only classify existing data (no scrape)")
+    p.add_argument("--classify-dir",default=None,help="Source dir for --classify-only")
+    p.add_argument("--classify-out",default=None,help="Output dir for classification")
+    args=p.parse_args()
+
+    # Classify-only mode
+    if args.classify_only:
+        src=args.classify_dir
+        if not src:
+            dirs=sorted([d for d in os.listdir(".")if d.startswith("igf_full_")and os.path.isdir(d)],reverse=True)
+            if not dirs:print("No igf_full_* directory found!");return
+            src=dirs[0]
+        run_classify(src,args.classify_out,args.workers)
+        return
+
+    # Scrape mode
+    do=set(args.step.split(","))if args.step else set(STEPS)
+    workers=args.workers
+    out=args.output or f"igf_full_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    print("\n"+"#"*55)
+    print("  IGF COMPLETE SCRAPER + CLASSIFIER")
+    print(f"  Steps: {', '.join(sorted(do))}")
+    print(f"  Workers: {workers}")
+    print(f"  Year range: {YEAR_START}-{YEAR_END}")
+    print(f"  Output: {os.path.abspath(out)}")
+    print("#"*55)
+    if args.dry_run:print("\n[Dry run - no downloads]");return
+    os.makedirs(out,exist_ok=True);t0=time.time()
+
+    if"sessions"in do:step_sessions(out,workers)
+    if"reports"in do:step_reports(out,workers)
+    if"transcripts"in do:step_transcripts(out,workers)
+    if"schedules"in do:step_schedules(out,workers)
+    if"archived"in do or"dashboard"in do:
+        yrs={args.year}if args.year else None
+        step_archived_dashboard(out,yrs,workers)
+    if"participants"in do:step_participants(out,workers)
+
+    if not args.no_clean:
+        print("\n"+"="*55+"\n  CLEANUP: removing empty directories...")
+        _remove_empty_dirs(out)
+
+    elapsed=(time.time()-t0)/60
+    print("\n"+"#"*55)
+    print(f"  SCRAPE DONE  ({elapsed:.0f}m)")
+    _print_stat()
+    print(f"  Output: {os.path.abspath(out)}")
+    print("#"*55)
+
+    # Auto-classify after scraping
+    if not args.no_classify:
+        run_classify(out,args.classify_out,workers)
+
+if __name__=="__main__":main()
