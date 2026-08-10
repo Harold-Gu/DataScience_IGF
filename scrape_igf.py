@@ -44,7 +44,7 @@ def _print_stat():
     with _stats_lock:s=dict(_stats)
     print(f"  [ok={s['ok']} fail={s['fail']} skip={s['skip']} pages={s['pages']}]")
 
-IGF_BASE="https://www.intgovforum.org"
+IGF_BASE="https://intgovforum.org"
 WORKERS=5
 MAX_DEPTH=3
 YEAR_START=2006
