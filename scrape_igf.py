@@ -1,4 +1,4 @@
-﻿import os,re,sys,time,random,argparse,threading,hashlib,shutil,json
+import os,re,sys,time,random,argparse,threading,hashlib,shutil,json
 from datetime import datetime
 from urllib.parse import urljoin,urlparse
 from queue import Queue
@@ -56,19 +56,27 @@ def _get_tl_scraper():
         browser={"browser":"chrome","platform":"windows","desktop":True})
     return _tl.s
 
+_fetch_err=[None,0]
 def _fetch(url,timeout=25,retries=3):
     for attempt in range(retries):
         _rate_wait(0.35)
         try:
             r=_get_tl_scraper().get(url,timeout=timeout)
-            if r.status_code==404:return None
+            if r.status_code==404:
+                if _fetch_err[1]==0:_fetch_err[0]="404";_fetch_err[1]=1
+                return None
             if r.status_code==429:
                 wait=2**attempt+random.uniform(0.5,2);time.sleep(wait);continue
-            if r.status_code in(502,503,504):time.sleep(1.5);continue
+            if r.status_code in(502,503,504):
+                if _fetch_err[1]==0:_fetch_err[0]=str(r.status_code);_fetch_err[1]=1
+                time.sleep(1.5);continue
             r.raise_for_status()
-            if len(r.text)<300:return None
+            if len(r.text)<300:
+                if _fetch_err[1]==0:_fetch_err[0]=f"short({len(r.text)}b)";_fetch_err[1]=1
+                return None
             return r
-        except Exception:
+        except Exception as e:
+            if _fetch_err[1]==0:_fetch_err[0]=str(type(e).__name__)+":"+str(e)[:80];_fetch_err[1]=1
             if attempt<retries-1:time.sleep(1);continue
             return None
     return None
@@ -168,13 +176,16 @@ DETAIL_RE=re.compile(r"igf-\d{4}-(?:ws|workshop|open-forum|lightning-talk|lightn
 def step_sessions(out_root,workers=WORKERS):
     print("\n"+"="*55+"\n  STEP 1: Sessions (2006-2025, 8 types)\n"+"="*55)
     base=os.path.join(out_root,"01_sessions");all_tasks=[]
+    bl=["newsletter","call-for","registration","about","schedule","report","transcript"]
     for stype,templates in SESSION_TYPES.items():
+        _fetch_err[0]=None;_fetch_err[1]=0
+        y_ok=0;y_skip=0
         for y in range(YEAR_START,YEAR_END+1):
-            links_for_year=[];tag=f"{stype}-{y}"
+            links=[];tag=f"{stype}-{y}";any_ok=False
             for tmpl in templates:
-                list_url=IGF_BASE+tmpl.format(year=y)
-                r=_fetch(list_url)
+                r=_fetch(IGF_BASE+tmpl.format(year=y))
                 if r is None:continue
+                any_ok=True
                 soup=BeautifulSoup(r.text,"html.parser");seen=set()
                 for a in soup.find_all("a",href=True):
                     href=a.get("href","")
@@ -183,24 +194,26 @@ def step_sessions(out_root,workers=WORKERS):
                     if full in seen:continue
                     seen.add(full)
                     if DETAIL_RE.search(href)and"/content/"in href:
-                        if f"igf-{y}-"in href:links_for_year.append(full)
+                        if f"igf-{y}-"in href:links.append(full)
                     elif"/content/"in href and f"igf-{y}-"in href:
-                        if not any(kw in href.lower()for kw in['newsletter','call-for','registration','about','schedule','report','transcript']):
-                            links_for_year.append(full)
-            links_for_year=list(dict.fromkeys(links_for_year))
-            if not links_for_year:
-                print(f"  [{tag}] 0 links")
-                continue
-            print(f"  [{tag}] {len(links_for_year)} links")
-            sub=os.path.join(base,tag)
-            for link in links_for_year:
-                name=link.split("/")[-1].split("?")[0]
-                fpath=os.path.join(sub,f"{_clean(name)}.html")
-                all_tasks.append((link,fpath,tag))
+                        if not any(kw in href.lower()for kw in bl):
+                            links.append(full)
+            links=list(dict.fromkeys(links))
+            if links:
+                print(f"  [{tag}] {len(links)} links")
+                y_ok+=1
+                sub=os.path.join(base,tag)
+                for link in links:
+                    name=link.split("/")[-1].split("?")[0]
+                    fpath=os.path.join(sub,f"{_clean(name)}.html")
+                    all_tasks.append((link,fpath,tag))
+            else:y_skip+=1
+        if y_skip>0:
+            err_info = f" [{_fetch_err[0]}]" if _fetch_err[1] and y_ok==0 else ""
+            print(f"  [{stype}] {y_ok} yrs ok, {y_skip} skipped{err_info}")
     if not all_tasks:print("  No session links found.");return
     print(f"\n  Downloading {len(all_tasks)} pages...")
     _download_batch(all_tasks,workers)
-
 def step_reports(out_root,workers=WORKERS):
     print("\n"+"="*55+"\n  STEP 2: Reports\n"+"="*55)
     _download_yearly_pages(IGF_BASE+"/en/content/igf-{year}-report",os.path.join(out_root,"02_reports"),workers)
@@ -216,17 +229,21 @@ def step_schedules(out_root,workers=WORKERS):
 def _download_yearly_pages(url_template,out_base,workers):
     for y in range(YEAR_START,YEAR_END+1):
         seed_url=url_template.format(year=y);sub=os.path.join(out_base,str(y))
-        print(f"  [{y}]");page=0;total_items=0
+        page=0;total_items=0;pages_saved=0
         while True:
             url=seed_url
             if page>0:sep="&"if"?"in seed_url else"?";url=f"{seed_url}{sep}page={page}"
             r=_fetch(url)
-            if r is None:break
+            if r is None:
+                if page==0:print(f"  [{y}] SKIP (fetch failed)")
+                break
             html=r.text;soup=BeautifulSoup(html,"html.parser")
+            os.makedirs(sub,exist_ok=True)
             pname=f"page_{page}"if page>0 else"index"
-            ppath=os.path.join(sub,f"{pname}.html");os.makedirs(sub,exist_ok=True)
+            ppath=os.path.join(sub,f"{pname}.html")
             if not os.path.exists(ppath):
                 with open(ppath,"w",encoding="utf-8")as f:f.write(html)
+            pages_saved+=1
             main=soup.find("main")or soup.find(id="main-content")or soup;page_tasks=[]
             for a in main.find_all("a",href=True):
                 href=a["href"].strip()
@@ -247,7 +264,8 @@ def _download_yearly_pages(url_template,out_base,workers):
             if next_link:page+=1
             else:break
             time.sleep(random.uniform(0.3,0.6))
-        print(f"    [{y}] {total_items} items, {page+1} pages")
+        if pages_saved>0:
+            print(f"    [{y}] {total_items} items, {pages_saved} pages")
         time.sleep(random.uniform(0.5,1.0))
 
 ARCHIVED={
@@ -290,6 +308,11 @@ def step_archived_dashboard(out_root,years=None,workers=WORKERS):
 
 def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
     os.makedirs(out_dir,exist_ok=True)
+    seed_year=""
+    try:
+        m=re.search(r"(20\d{2})",seed_url)
+        if m:seed_year=m.group(1)
+    except:pass
     files_dir=os.path.join(out_dir,"files");os.makedirs(files_dir,exist_ok=True)
     task_queue=Queue();task_queue.put((seed_url,0,out_dir))
     local_stats={"pages":0,"files":0,"errors":0};stats_lock=threading.Lock();running=[True]
@@ -324,17 +347,36 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                     fpath=os.path.join(files_dir,fname)
                     if _download_one(scraper,full,fpath)=="ok":
                         with stats_lock:local_stats["files"]+=1
-                elif depth<MAX_DEPTH and _is_igf_domain(full):
-                    task_queue.put((full,depth+1,current_dir))
+                elif _is_igf_domain(full):
+                    if depth<MAX_DEPTH:
+                        task_queue.put((full,depth+1,current_dir))
+                else:
+                    ext_name=_clean(full.split("/")[-1].split("?")[0])or f"ext_{abs(hash(full))}"
+                    ext_path=os.path.join(current_dir,f"{ext_name}.html")
+                    _download_one(scraper,full,ext_path)
+                    if depth==0:
+                        url_low=full.lower()
+                        if seed_year and seed_year in url_low:
+                            task_queue.put((full,depth+1,current_dir))
+                        elif any(kw in url_low for kw in["igf","intgov","internet-governance"]):
+                            task_queue.put((full,depth+1,current_dir))
+                    if depth<MAX_DEPTH:
+                        url_low=full.lower()
+                        if seed_year and seed_year in url_low:
+                            task_queue.put((full,depth+1,current_dir))
+                        elif any(kw in url_low for kw in["igf","intgov","internet-governance"]):
+                            task_queue.put((full,depth+1,current_dir))
             task_queue.task_done()
             time.sleep(random.uniform(0.2,0.5))
     threads=[threading.Thread(target=_worker,daemon=True)for _ in range(workers)]
     for t in threads:t.start()
-    last_qsize=-1;stable_count=0
+    last_qsize=-1;stable_count=0;last_p=0;last_f=0
     while True:
         time.sleep(1.5);qsize=task_queue.qsize()
         with stats_lock:s=dict(local_stats)
-        print(f"    [q={qsize}] {s['pages']}p {s['files']}f")
+        if s["pages"]!=last_p or s["files"]!=last_f:
+            print(f"    [q={qsize}] {s['pages']}p {s['files']}f")
+            last_p=s["pages"];last_f=s["files"]
         if qsize==last_qsize:
             stable_count+=1
             if stable_count>=8 and qsize==0:break
