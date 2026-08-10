@@ -50,14 +50,34 @@ MAX_DEPTH=3
 YEAR_START=2006
 YEAR_END=2025
 
-_tl=threading.local()
+_GLOBAL_SCRAPER=None
+_GLOBAL_SCRAPER_LOCK=threading.Lock()
+_FIXED_UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 def _get_tl_scraper():
-    if not hasattr(_tl,'s'):_tl.s=cloudscraper.create_scraper(
-        browser={"browser":"chrome","platform":"windows","desktop":True})
-    return _tl.s
+    global _GLOBAL_SCRAPER
+    if _GLOBAL_SCRAPER is None:
+        with _GLOBAL_SCRAPER_LOCK:
+            if _GLOBAL_SCRAPER is None:
+                _GLOBAL_SCRAPER=cloudscraper.CloudScraper(
+                    browser={
+                        "browser":"chrome",
+                        "platform":"windows",
+                        "desktop":True,
+                        "mobile":False,
+                    },
+                    headers={
+                        "User-Agent":_FIXED_UA,
+                        "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                        "Accept-Language":"en-US,en;q=0.9",
+                        "Accept-Encoding":"gzip, deflate, br",
+                        "Cache-Control":"no-cache",
+                        "Pragma":"no-cache",
+                    }
+                )
+    return _GLOBAL_SCRAPER
 
 _fetch_err=[None,0]
-def _fetch(url,timeout=25,retries=3):
+def _fetch(url,timeout=25,retries=5):
     for attempt in range(retries):
         _rate_wait(0.35)
         try:
@@ -66,10 +86,10 @@ def _fetch(url,timeout=25,retries=3):
                 if _fetch_err[1]==0:_fetch_err[0]="404";_fetch_err[1]=1
                 return None
             if r.status_code==429:
-                wait=2**attempt+random.uniform(0.5,2);time.sleep(wait);continue
+                wait=2**(attempt+1)+random.uniform(1,3);time.sleep(wait);continue
             if r.status_code in(502,503,504):
                 if _fetch_err[1]==0:_fetch_err[0]=str(r.status_code);_fetch_err[1]=1
-                time.sleep(1.5);continue
+                time.sleep(2**(attempt+1));continue
             r.raise_for_status()
             if len(r.text)<300:
                 if _fetch_err[1]==0:_fetch_err[0]=f"short({len(r.text)}b)";_fetch_err[1]=1
@@ -77,7 +97,7 @@ def _fetch(url,timeout=25,retries=3):
             return r
         except Exception as e:
             if _fetch_err[1]==0:_fetch_err[0]=str(type(e).__name__)+":"+str(e)[:80];_fetch_err[1]=1
-            if attempt<retries-1:time.sleep(1);continue
+            if attempt<retries-1:time.sleep(2**(attempt+1)+random.uniform(0.5,2));continue
             return None
     return None
 
@@ -184,7 +204,9 @@ def step_sessions(out_root,workers=WORKERS):
             links=[];tag=f"{stype}-{y}";any_ok=False
             for tmpl in templates:
                 r=_fetch(IGF_BASE+tmpl.format(year=y))
-                if r is None:continue
+                if r is None:
+                    time.sleep(random.uniform(1.0,2.0))
+                    continue
                 any_ok=True
                 soup=BeautifulSoup(r.text,"html.parser");seen=set()
                 for a in soup.find_all("a",href=True):
