@@ -52,28 +52,15 @@ YEAR_END=2025
 
 _GLOBAL_SCRAPER=None
 _GLOBAL_SCRAPER_LOCK=threading.Lock()
-_FIXED_UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 def _get_tl_scraper():
     global _GLOBAL_SCRAPER
     if _GLOBAL_SCRAPER is None:
         with _GLOBAL_SCRAPER_LOCK:
             if _GLOBAL_SCRAPER is None:
-                _GLOBAL_SCRAPER=cloudscraper.CloudScraper(
-                    browser={
-                        "browser":"chrome",
-                        "platform":"windows",
-                        "desktop":True,
-                        "mobile":False,
-                    },
-                    headers={
-                        "User-Agent":_FIXED_UA,
-                        "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                        "Accept-Language":"en-US,en;q=0.9",
-                        "Accept-Encoding":"gzip, deflate, br",
-                        "Cache-Control":"no-cache",
-                        "Pragma":"no-cache",
-                    }
-                )
+                print("  [INIT] Creating cloudscraper session (~30s)...",flush=True)
+                _GLOBAL_SCRAPER=cloudscraper.create_scraper(
+                    browser={"browser":"chrome","platform":"windows","desktop":True})
+                print("  [INIT] Session ready.",flush=True)
     return _GLOBAL_SCRAPER
 
 _fetch_err=[None,0]
@@ -135,29 +122,25 @@ def _download_one(scraper,url,fpath,max_retries=3):
     if not _mark_visited(url):return"skip"
     if os.path.exists(fpath)and os.path.getsize(fpath)>0:return"skip"
     os.makedirs(os.path.dirname(fpath),exist_ok=True)
+    is_bin=_ext(url)in{".pdf",".doc",".docx",".xls",".xlsx",".ppt",".pptx",".zip",".bin"}
     for attempt in range(max_retries):
         _rate_wait(0.35)
         try:
             r=scraper.get(url,timeout=30)
-            if r.status_code==429:
-                wait=2**(attempt+1)+random.uniform(0.5,2);time.sleep(wait);continue
+            if r.status_code==429:time.sleep(2**(attempt+1)+random.uniform(0.5,2));continue
             if r.status_code in(502,503,504):time.sleep(1.5);continue
             r.raise_for_status()
-            is_bin=_ext(url)in{".pdf",".doc",".docx",".xls",".xlsx",".ppt",".pptx",".zip",".bin"}
+            data=r.content if is_bin else r.text.encode("utf-8")
+            if len(data)<(100 if is_bin else 300):
+                if attempt<max_retries-1:time.sleep(1.5);continue
+                return"fail"
             if is_bin:
-                if len(r.content)<100:
-                    if attempt<max_retries-1:time.sleep(1);continue
-                    return"fail"
                 with open(fpath,"wb")as f:f.write(r.content)
             else:
-                if len(r.text)<300:
-                    if attempt<max_retries-1:time.sleep(1);continue
-                    return"fail"
                 with open(fpath,"w",encoding="utf-8")as f:f.write(r.text)
             return"ok"
         except Exception:
             if attempt<max_retries-1:time.sleep(1.5);continue
-            return"fail"
     return"fail"
 
 def _download_batch(tasks,workers):
@@ -354,11 +337,8 @@ def step_archived_dashboard(out_root,years=None,workers=WORKERS):
 
 def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
     os.makedirs(out_dir,exist_ok=True)
-    seed_year=""
-    try:
-        m=re.search(r"(20\d{2})",seed_url)
-        if m:seed_year=m.group(1)
-    except:pass
+    seed_year=re.search(r"(20\d{2})",seed_url)
+    seed_year=seed_year.group(1)if seed_year else""
     files_dir=os.path.join(out_dir,"files");os.makedirs(files_dir,exist_ok=True)
     task_queue=Queue();task_queue.put((seed_url,0,out_dir))
     local_stats={"pages":0,"files":0,"errors":0};stats_lock=threading.Lock();running=[True]
@@ -490,27 +470,11 @@ WEIGHTED_RULES=[
     (["participant","registration list","attendee"],"participants",4),
     (["dynamic coalition","dc session","bpf","best practice","nri",
       "national regional","intersessional"],"dc-bpf-nri",4),
-    (["parliamentary","high level track","leadership panel","ministerial"],"high-level",3),
-    (["newcomer","orientation","introduction to igf","igf orientation"],"newcomers",3),
-    (["newsletter","news bulletin","igf in the news"],"news",2),
-    (["press release","media advisory"],"press",2),
-    (["call for","proposal submission","apply for","application"],"calls",2),
-    (["capacity development","capacity building","training"],"capacity-building",2),
-    (["policy network","policynetwork","pn on"],"policy-networks",2),
-    (["donor","trust fund","contribution"],"donors",2),
-    (["expert group","expert meeting","mag meeting","multistakeholder advisory"],"mag-eg",2),
-    (["village","igf village","exhibition","booth","showcase"],"village",2),
-    (["youth","young","students","intern","fellowship"],"youth",2),
-    (["accessibility","disability","inclusion"],"accessibility",2),
-    (["about the igf","about igf","what is the igf","igf mandate"],"about",1),
 ]
 
 TYPE_PRIORITY={"workshop":0,"open-forum":1,"lightning-talk":2,"day-0-event":3,
     "networking":4,"main-session":5,"town-hall":6,"launch-award":7,
-    "transcript":8,"report":9,"schedule":10,"participants":11,"dc-bpf-nri":12,
-    "high-level":13,"newcomers":14,"news":15,"press":16,"calls":17,
-    "capacity-building":18,"policy-networks":19,"donors":20,"mag-eg":21,
-    "village":22,"youth":23,"accessibility":24,"about":25}
+    "transcript":8,"report":9,"schedule":10,"participants":11,"dc-bpf-nri":12}
 
 def _classify_by_filename(fname):
     for t,patterns in TYPE_RE.items():
@@ -676,87 +640,47 @@ def _extract_drupal_fields_json(soup):
         else:fields[field_name]={'label':label,'content':contents}
     return fields
 
-def _extract_speakers_json(fields):
-    speakers=[]
-    for k,v in fields.items():
-        if'speaker'in k.lower():
-            for item in v.get('content',[]):
-                speakers.append({'name':item.get('text',''),'links':[l['href']for l in item.get('links',[])]})
-    return speakers
 
-def _extract_organizers_json(fields):
-    orgs=[]
-    for k,v in fields.items():
-        if'organizer'in k.lower()or'proposer'in k.lower():
-            for item in v.get('content',[]):
-                orgs.append({'name':item.get('text',''),'links':[l['href']for l in item.get('links',[])]})
-    return orgs
 
-def _extract_sdgs_json(fields):
-    sdgs=set()
-    for k,v in fields.items():
-        if'sdg'in k.lower():
-            for item in v.get('content',[]):
-                nums=re.findall(r'\b(\d{1,2})\b',item.get('text',''))
-                sdgs.update(int(n)for n in nums if 1<=int(n)<=17)
-    return sorted(sdgs)
 
-def _extract_topics_json(title,body_text,fields):
-    text=(title+' '+body_text).lower()
-    for v in fields.values():
-        for item in v.get('content',[]):text+=' '+item.get('text','').lower()
-    topics=set()
-    topic_kw={
-        'cybersecurity':['cybersecurity','cyber security'],
-        'ai':['artificial intelligence','ai governance','ai ethics','machine learning'],
-        'data':['data governance','data protection','data privacy','gdpr'],
-        'inclusion':['digital inclusion','digital divide','digital literacy'],
-        'rights':['human rights','freedom of expression','rights online'],
-        'environment':['climate change','environment','sustainability'],
-        'blockchain':['blockchain','cryptocurrency','web3','decentralized'],
-        'children':['child online','child safety','child protection'],
-        'moderation':['content moderation','platform regulation','hate speech','disinformation'],
-        'governance':['internet governance','multistakeholder','digital cooperation'],
-        'connectivity':['5g','broadband','connectivity','internet access'],
-        'economy':['e-commerce','digital economy','digital trade'],
-        'education':['digital education','e-learning','edtech'],
-        'health':['e-health','digital health','telemedicine'],
-        'iot':['internet of things','iot','smart devices'],
-        'gender':['gender','women','female empowerment'],
-        'infrastructure':['dns','domain name','icann','routing'],
-    }
-    for topic,kws in topic_kw.items():
-        for kw in kws:
-            if re.search(kw,text,re.I):topics.add(topic);break
-    return sorted(topics)
 
 def _extract_one_file(fp,src_root):
     try:
         fname=os.path.basename(fp)
-        with open(fp,'r',encoding='utf-8',errors='ignore')as f:html=f.read()
+        rel=os.path.relpath(fp,src_root).replace("\\","/")
+        folder=os.path.dirname(rel).replace("\\","/")
+        with open(fp,"r",encoding="utf-8",errors="ignore")as f:html=f.read()
         if len(html)<300:return None
-        soup=BeautifulSoup(html,'html.parser')
-        page_type=_classify_by_filename(fname)or _classify_by_content(html)or'other'
+        soup=BeautifulSoup(html,"html.parser")
+        page_type=_classify_by_filename(fname)or _classify_by_content(html)or"other"
         year=_extract_year(fname)or _extract_year(str(fp))
-        title=soup.title.string.strip()if soup.title else''
-        fields=_extract_drupal_fields_json(soup)
-        main=soup.find('main')or soup.find(id='main-content')or soup.find('body')
-        body_text=main.get_text(separator=' ',strip=True)[:5000]if main else''
-        speakers=_extract_speakers_json(fields)
-        organizers=_extract_organizers_json(fields)
-        sdgs=_extract_sdgs_json(fields)
-        topics=_extract_topics_json(title,body_text,fields)
-        field_texts={}
-        for k,v in fields.items():
-            texts=[item['text'][:2000]for item in v.get('content',[])if item.get('text')]
-            if texts:field_texts[k]={'label':v.get('label',''),'texts':texts}
+        title=soup.title.string.strip()if soup.title else""
+        main=soup.find("main")or soup.find(id="main-content")or soup.find("body")
+        body_text=main.get_text(separator=" ",strip=True)if main else""
+        drupal_fields=_extract_drupal_fields_json(soup)
+        headings=[]
+        if main:
+            for tag in main.find_all(["h1","h2","h3"]):
+                t=tag.get_text(strip=True)
+                if t and len(t)>1:headings.append(t)
+        meta={}
+        for m in soup.find_all("meta"):
+            name=m.get("name")or m.get("property")
+            content=m.get("content")
+            if name and content:meta[name]=content
+        links=[]
+        if main:
+            for a in main.find_all("a",href=True):
+                href=a["href"].strip()
+                if href and not href.startswith("#")and not href.startswith("javascript:")and"mailto:"not in href:
+                    links.append({"text":a.get_text(strip=True)[:200],"href":_make_url(href)})
         chash=_content_hash(html)
-        return{'file':fname,'type':page_type,'year':year,'title':title,
-               'fields':field_texts,'body_text':body_text,'speakers':speakers,
-               'organizers':organizers,'sdgs':sdgs,'topics':topics,
-               'content_hash':chash,'size_bytes':len(html)}
+        return{"file":fname,"rel_path":rel,"folder":folder,"type":page_type,
+               "year":year,"title":title,"drupal_fields":drupal_fields,
+               "body_text":body_text,"headings":headings,"meta":meta,
+               "links":links,"content_hash":chash,"size_bytes":len(html)}
     except Exception as e:
-        return{'file':os.path.basename(fp),'error':str(e)}
+        return{"file":os.path.basename(fp),"error":str(e)}
 
 def run_extract(src_dir,out_dir=None,workers=4):
     src=os.path.abspath(src_dir)
@@ -780,12 +704,6 @@ def run_extract(src_dir,out_dir=None,workers=4):
             results.append(r)
             if i%500==0:print(f"    {i}/{len(html_files)} ({len(results)} unique)")
     print(f"  Extracted: {len(results)} unique, {dups} duplicates")
-    by_type=defaultdict(list)
-    for r in results:by_type[r.get('type','other')].append(r)
-    for t,items in sorted(by_type.items()):
-        fpath=os.path.join(out,f"{t}.json")
-        with open(fpath,'w',encoding='utf-8')as f:json.dump(items,f,ensure_ascii=False,indent=2)
-        print(f"    {t}.json -> {len(items)} pages")
     all_path=os.path.join(out,'all.json')
     with open(all_path,'w',encoding='utf-8')as f:json.dump(results,f,ensure_ascii=False,indent=2)
     print(f"    all.json -> {len(results)} pages")
@@ -797,64 +715,36 @@ STEPS=["sessions","reports","transcripts","schedules","archived","dashboard","pa
 def main():
     p=argparse.ArgumentParser(description="IGF Complete Scraper + Classifier + Extractor")
     p.add_argument("--step",help="Comma-sep: "+",".join(STEPS))
-    p.add_argument("--year",type=int,help="Single year for archived/dashboard")
-    p.add_argument("--workers",type=int,default=WORKERS,help=f"Thread count (default {WORKERS})")
-    p.add_argument("--output",default=None,help="Output directory")
-    p.add_argument("--dry-run",action="store_true",help="Show plan, no downloads")
-    p.add_argument("--no-clean",action="store_true",help="Skip empty dir cleanup")
-    p.add_argument("--no-classify",action="store_true",help="Skip classify step")
-    p.add_argument("--no-extract",action="store_true",help="Skip JSON extraction")
-    p.add_argument("--classify-only",action="store_true",help="Only classify existing data")
-    p.add_argument("--classify-dir",default=None,help="Source dir for --classify-only")
-    p.add_argument("--classify-out",default=None,help="Output dir for classification")
-    p.add_argument("--extract-out",default=None,help="Output dir for JSON extraction")
+    p.add_argument("--year",type=int)
+    p.add_argument("--workers",type=int,default=WORKERS)
+    p.add_argument("--output",default=None)
+    p.add_argument("--dry-run",action="store_true")
+    p.add_argument("--no-clean",action="store_true")
+    p.add_argument("--no-classify",action="store_true")
+    p.add_argument("--no-extract",action="store_true")
+    p.add_argument("--classify-only",action="store_true")
+    p.add_argument("--classify-dir",default=None)
+    p.add_argument("--classify-out",default=None)
+    p.add_argument("--extract-out",default=None)
     args=p.parse_args()
-
     if args.classify_only:
-        src=args.classify_dir
-        if not src:
-            dirs=sorted([d for d in os.listdir(".")if d.startswith("igf_full_")and os.path.isdir(d)],reverse=True)
-            if not dirs:print("No igf_full_* directory found!");return
-            src=dirs[0]
-        run_classify(src,args.classify_out,args.workers)
-        return
-
+        src=args.classify_dir or next((d for d in sorted(os.listdir("."),reverse=True)if d.startswith("igf_full_")and os.path.isdir(d)),None)
+        if not src:print("No igf_full_* found!");return
+        run_classify(src,args.classify_out,args.workers);return
     do=set(args.step.split(","))if args.step else set(STEPS)
-    workers=args.workers
     out=args.output or f"igf_full_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    print("\n"+"#"*55)
-    print("  IGF COMPLETE SCRAPER + CLASSIFIER + EXTRACTOR")
-    print(f"  Steps: {', '.join(sorted(do))}")
-    print(f"  Workers: {workers}")
-    print(f"  Year range: {YEAR_START}-{YEAR_END}")
-    print(f"  Output: {os.path.abspath(out)}")
-    print("#"*55)
+    print(f"\n{'#'*55}\n  IGF COMPLETE SCRAPER + CLASSIFIER + EXTRACTOR\n  Steps: {', '.join(sorted(do))}\n  Workers: {args.workers}\n  Year range: {YEAR_START}-{YEAR_END}\n  Output: {os.path.abspath(out)}\n{'#'*55}")
     if args.dry_run:print("\n[Dry run - no downloads]");return
     os.makedirs(out,exist_ok=True);t0=time.time()
-
-    if"sessions"in do:step_sessions(out,workers)
-    if"reports"in do:step_reports(out,workers)
-    if"transcripts"in do:step_transcripts(out,workers)
-    if"schedules"in do:step_schedules(out,workers)
-    if"archived"in do or"dashboard"in do:
-        yrs={args.year}if args.year else None
-        step_archived_dashboard(out,yrs,workers)
-    if"participants"in do:step_participants(out,workers)
-
-    if not args.no_clean:
-        print("\n"+"="*55+"\n  CLEANUP: removing empty directories...")
-        _remove_empty_dirs(out)
-
+    STEPS_MAP={"sessions":step_sessions,"reports":step_reports,"transcripts":step_transcripts,"schedules":step_schedules}
+    for s,f in STEPS_MAP.items():
+        if s in do:f(out,args.workers)
+    if"archived"in do or"dashboard"in do:step_archived_dashboard(out,{args.year}if args.year else None,args.workers)
+    if"participants"in do:step_participants(out,args.workers)
+    if not args.no_clean:print(f"\n{'='*55}\n  CLEANUP");_remove_empty_dirs(out)
     elapsed=(time.time()-t0)/60
-    print("\n"+"#"*55)
-    print(f"  SCRAPE DONE  ({elapsed:.0f}m)")
-    _print_stat()
-    print(f"  Output: {os.path.abspath(out)}")
-    print("#"*55)
-
-    if not args.no_classify:
-        class_out=run_classify(out,args.classify_out,workers)
-        if not args.no_extract:
-            run_extract(class_out,args.extract_out,workers)
+    print(f"\n{'#'*55}\n  SCRAPE DONE  ({elapsed:.0f}m)");_print_stat()
+    print(f"  Output: {os.path.abspath(out)}\n{'#'*55}")
+    if not args.no_classify:run_extract(run_classify(out,args.classify_out,args.workers),args.extract_out,args.workers)if not args.no_extract else run_classify(out,args.classify_out,args.workers)
 
 if __name__=="__main__":main()
