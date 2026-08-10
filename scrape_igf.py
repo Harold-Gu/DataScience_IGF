@@ -162,14 +162,14 @@ def _download_batch(tasks,workers):
                     if len(done_set)>=workers*5:break
                 for f in done_set:del futures[f]
 SESSION_TYPES={
-    "workshops":["/en/workshop-proposals-{year}","/en/workshops-{year}","/en/content/igf-{year}-workshops"],
-    "open-forums":["/en/open-forums-{year}","/en/open-forum-proposals-{year}","/en/content/igf-{year}-open-forums"],
-    "lightning-talks":["/en/lightning-talks-{year}","/en/lightning-talk-proposals-{year}","/en/content/igf-{year}-lightning-talks"],
-    "day-0-events":["/en/day-0-events-{year}","/en/pre-events-{year}","/en/content/igf-{year}-day-0-events"],
+    "workshops":["/en/workshop-proposals-{year}","/en/content/igf-{year}-workshops"],
+    "open-forums":["/en/open-forum-proposals-{year}","/en/content/igf-{year}-open-forums"],
+    "lightning-talks":["/en/lightning-talk-proposals-{year}","/en/content/igf-{year}-lightning-talks"],
+    "day-0-events":["/en/pre-events-{year}","/en/content/igf-{year}-day-0-events"],
     "launches-awards":["/en/launches-awards-{year}","/en/content/igf-{year}-launches-awards"],
     "networking":["/en/networking-sessions-{year}","/en/content/igf-{year}-networking-sessions"],
-    "main-sessions":["/en/main-sessions-{year}","/en/content/igf-{year}-main-sessions"],
-    "town-halls":["/en/town-halls-{year}","/en/town-hall-{year}","/en/content/igf-{year}-town-halls"],
+    "main-sessions":["/en/content/igf-{year}-main-sessions"],
+    "town-halls":["/en/content/igf-{year}-town-halls"],
 }
 DETAIL_RE=re.compile(r"igf-\d{4}-(?:ws|workshop|open-forum|lightning-talk|lightning-talk-event|day-0-event|networking-session|networking|launch-award-event|town-hall|main-session|pre-event)-\d+",re.I)
 
@@ -216,28 +216,51 @@ def step_sessions(out_root,workers=WORKERS):
     _download_batch(all_tasks,workers)
 def step_reports(out_root,workers=WORKERS):
     print("\n"+"="*55+"\n  STEP 2: Reports\n"+"="*55)
-    _download_yearly_pages(IGF_BASE+"/en/content/igf-{year}-report",os.path.join(out_root,"02_reports"),workers)
+    _download_yearly_pages(IGF_BASE+"/en/content/igf-{year}-report",os.path.join(out_root,"02_reports"),workers,
+        fallback_templates=[IGF_BASE+"/en/igf-{year}-report",IGF_BASE+"/en/content/igf-{year}-final-report"])
 
 def step_transcripts(out_root,workers=WORKERS):
     print("\n"+"="*55+"\n  STEP 3: Transcripts\n"+"="*55)
-    _download_yearly_pages(IGF_BASE+"/en/igf-{year}-transcripts",os.path.join(out_root,"03_transcripts"),workers)
+    _download_yearly_pages(IGF_BASE+"/en/igf-{year}-transcripts",os.path.join(out_root,"03_transcripts"),workers,
+        fallback_templates=[IGF_BASE+"/en/content/igf-{year}-transcripts"])
 
 def step_schedules(out_root,workers=WORKERS):
     print("\n"+"="*55+"\n  STEP 4: Schedules\n"+"="*55)
-    _download_yearly_pages(IGF_BASE+"/en/content/igf-{year}-schedule",os.path.join(out_root,"04_schedules"),workers)
+    _download_yearly_pages(IGF_BASE+"/en/content/igf-{year}-schedule",os.path.join(out_root,"04_schedules"),workers,
+        fallback_templates=[IGF_BASE+"/en/igf-{year}-schedule"])
 
-def _download_yearly_pages(url_template,out_base,workers):
+def _download_yearly_pages(url_template,out_base,workers,fallback_templates=None):
+    if fallback_templates is None:
+        fallback_templates=[]
     for y in range(YEAR_START,YEAR_END+1):
-        seed_url=url_template.format(year=y);sub=os.path.join(out_base,str(y))
+        seed_url=None;sub=os.path.join(out_base,str(y))
+        # Try primary template first, then fallbacks
+        for tmpl in [url_template]+list(fallback_templates):
+            test_url=tmpl.format(year=y)
+            r=_fetch(test_url)
+            if r is not None:
+                seed_url=test_url
+                # Pre-save the seed page HTML for this successful URL
+                os.makedirs(sub,exist_ok=True)
+                with open(os.path.join(sub,"index.html"),"w",encoding="utf-8")as f:f.write(r.text)
+                break
+        if seed_url is None:
+            print(f"  [{y}] SKIP (all URL patterns failed)")
+            continue
         page=0;total_items=0;pages_saved=0
         while True:
             url=seed_url
             if page>0:sep="&"if"?"in seed_url else"?";url=f"{seed_url}{sep}page={page}"
-            r=_fetch(url)
-            if r is None:
-                if page==0:print(f"  [{y}] SKIP (fetch failed)")
-                break
-            html=r.text;soup=BeautifulSoup(html,"html.parser")
+            if page==0 and os.path.exists(os.path.join(sub,"index.html")):
+                html=open(os.path.join(sub,"index.html"),"r",encoding="utf-8").read()
+            else:
+                r=_fetch(url)
+                if r is None:
+                    if page==0:print(f"  [{y}] SKIP (fetch failed)")
+                    break
+                html=r.text
+            soup=BeautifulSoup(html,"html.parser")
+            is_dashboard_spa=("IGF Schedule" in html[:5000] and "Calendar view" in html[:8000])
             os.makedirs(sub,exist_ok=True)
             pname=f"page_{page}"if page>0 else"index"
             ppath=os.path.join(sub,f"{pname}.html")
@@ -245,7 +268,7 @@ def _download_yearly_pages(url_template,out_base,workers):
                 with open(ppath,"w",encoding="utf-8")as f:f.write(html)
             pages_saved+=1
             main=soup.find("main")or soup.find(id="main-content")or soup;page_tasks=[]
-            for a in main.find_all("a",href=True):
+            for a in (main.find_all("a",href=True) if not is_dashboard_spa else []):
                 href=a["href"].strip()
                 if not href or href.startswith("#"):continue
                 full=_make_url(href,seed_url)
@@ -300,6 +323,7 @@ def step_archived_dashboard(out_root,years=None,workers=WORKERS):
         sub=os.path.join(out_root,"05_archived",str(y))
         print(f"\n  [{y}] {IGF_BASE}{path}")
         _deep_crawl_parallel(IGF_BASE+path,sub,workers)
+        time.sleep(random.uniform(2.0,4.0))
     for y,path in DASHBOARD.items():
         if years and y not in years:continue
         sub=os.path.join(out_root,"06_dashboard",str(y))
@@ -326,8 +350,14 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
             r=_fetch(url)
             if r is None:
                 with stats_lock:local_stats["errors"]+=1
+                if depth==0:
+                    err_path=os.path.join(current_dir,"_FETCH_FAILED.txt")
+                    try:
+                        with open(err_path,"w")as ef:ef.write(f"Failed to fetch seed URL: {url}\nCheck if URL exists.\n")
+                    except:pass
                 task_queue.task_done();continue
             html=r.text
+            is_dashboard_spa=("IGF Schedule" in html[:5000] and "Calendar view" in html[:8000])
             name=url.split("/")[-1].split("?")[0]or f"page_{abs(hash(url))}"
             page_path=os.path.join(current_dir,f"{_clean(name)}.html")
             if not os.path.exists(page_path):
@@ -337,7 +367,7 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
             with stats_lock:local_stats["pages"]+=1
             soup=BeautifulSoup(html,"html.parser")
             main=soup.find("main")or soup.find(id="main-content")or soup
-            for a in main.find_all("a",href=True):
+            for a in (main.find_all("a",href=True) if not (is_dashboard_spa and depth>0) else []):
                 href=a["href"].strip()
                 if not href or href.startswith("#")or href.startswith("javascript:"):continue
                 if"mailto:"in href:continue
@@ -345,7 +375,9 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                 if _is_file(full):
                     fname=_clean(full.split("/")[-1].split("?")[0])
                     fpath=os.path.join(files_dir,fname)
-                    if _download_one(scraper,full,fpath)=="ok":
+                    if os.path.exists(fpath) and os.path.getsize(fpath)>0:
+                        with stats_lock:local_stats["files"]+=1
+                    elif _download_one(scraper,full,fpath)=="ok":
                         with stats_lock:local_stats["files"]+=1
                 elif _is_igf_domain(full):
                     if depth<MAX_DEPTH:
@@ -360,11 +392,6 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                             task_queue.put((full,depth+1,current_dir))
                         elif any(kw in url_low for kw in["igf","intgov","internet-governance"]):
                             task_queue.put((full,depth+1,current_dir))
-                    if depth<MAX_DEPTH:
-                        url_low=full.lower()
-                        if seed_year and seed_year in url_low:
-                            task_queue.put((full,depth+1,current_dir))
-                        elif any(kw in url_low for kw in["igf","intgov","internet-governance"]):
                             task_queue.put((full,depth+1,current_dir))
             task_queue.task_done()
             time.sleep(random.uniform(0.2,0.5))
@@ -379,7 +406,7 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
             last_p=s["pages"];last_f=s["files"]
         if qsize==last_qsize:
             stable_count+=1
-            if stable_count>=8 and qsize==0:break
+            if stable_count>=20 and qsize==0:break
         else:stable_count=0
         last_qsize=qsize
     running[0]=False
