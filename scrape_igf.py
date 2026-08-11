@@ -46,7 +46,7 @@ def _print_stat():
 
 IGF_BASE="https://intgovforum.org"
 WORKERS=5
-MAX_DEPTH=3
+MAX_DEPTH=2;MAX_QUEUE=400
 YEAR_START=2006
 YEAR_END=2025
 
@@ -382,18 +382,15 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                     elif _download_one(scraper,full,fpath)=="ok":
                         with stats_lock:local_stats["files"]+=1
                 elif _is_igf_domain(full):
-                    if depth<MAX_DEPTH:
+                    if depth<MAX_DEPTH and task_queue.qsize()<MAX_QUEUE:
                         task_queue.put((full,depth+1,current_dir))
                 else:
                     ext_name=_clean(full.split("/")[-1].split("?")[0])or f"ext_{abs(hash(full))}"
                     ext_path=os.path.join(current_dir,f"{ext_name}.html")
                     _download_one(scraper,full,ext_path)
-                    if depth==0:
+                    if depth==0 and task_queue.qsize()<MAX_QUEUE:
                         url_low=full.lower()
-                        if seed_year and seed_year in url_low:
-                            task_queue.put((full,depth+1,current_dir))
-                        elif any(kw in url_low for kw in["igf","intgov","internet-governance"]):
-                            task_queue.put((full,depth+1,current_dir))
+                        if (seed_year and seed_year in url_low) or any(kw in url_low for kw in["igf","intgov","internet-governance"]):
                             task_queue.put((full,depth+1,current_dir))
             task_queue.task_done()
             time.sleep(random.uniform(0.2,0.5))
@@ -403,12 +400,12 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
     while True:
         time.sleep(1.5);qsize=task_queue.qsize()
         with stats_lock:s=dict(local_stats)
-        if s["pages"]!=last_p or s["files"]!=last_f:
+        if s["pages"]!=last_p or s["files"]!=last_f or qsize%100==0:
             print(f"    [q={qsize}] {s['pages']}p {s['files']}f")
             last_p=s["pages"];last_f=s["files"]
         if qsize==last_qsize:
             stable_count+=1
-            if stable_count>=20 and qsize==0:break
+            if stable_count>=30 and qsize==0:break
         else:stable_count=0
         last_qsize=qsize
     running[0]=False
