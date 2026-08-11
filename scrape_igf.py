@@ -239,13 +239,11 @@ def _download_yearly_pages(url_template,out_base,workers,fallback_templates=None
         fallback_templates=[]
     for y in range(YEAR_START,YEAR_END+1):
         seed_url=None;sub=os.path.join(out_base,str(y))
-        # Try primary template first, then fallbacks
         for tmpl in [url_template]+list(fallback_templates):
             test_url=tmpl.format(year=y)
             r=_fetch(test_url)
             if r is not None:
                 seed_url=test_url
-                # Pre-save the seed page HTML for this successful URL
                 os.makedirs(sub,exist_ok=True)
                 with open(os.path.join(sub,"index.html"),"w",encoding="utf-8")as f:f.write(r.text)
                 break
