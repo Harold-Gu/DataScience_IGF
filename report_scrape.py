@@ -11,7 +11,6 @@ def sp(s):
     except: return repr(s)
 
 def scan_html(class_dir):
-    """Scan and validate HTML files, return stats."""
     all_html = list(Path(class_dir).rglob("*.html"))
     counts = Counter(); bad_files = defaultdict(list)
     size_dist = Counter(); body_len_dist = Counter()
@@ -101,17 +100,17 @@ def print_quality(label, counts, size_dist, body_len_dist, type_stats, bad_files
         ("JS-only","js_only"),("Cloudflare","cloudflare"),("Access denied","access_denied"),
         ("Bad encoding","bad_enc"),("Replacement chars","repl"),("Read error","rerr")]:
         print("  {:<30s} {:>6d}".format(l, counts[key]))
-    print("\n  " + SEP2 + "\n  FILE SIZE DISTRIBUTION\n  " + SEP2)
+    print("\n  " + SEP2 + "\n  SIZE DISTRIBUTION\n  " + SEP2)
     for k in ["<100B","100-500B","500B-2KB","2-10KB","10-50KB","50-200KB",">200KB"]:
         bar = "#"*max(1,size_dist[k]//max(1,total//50))
         print("  {:<12s} {:>5d}  {}".format(k, size_dist[k], bar))
-    print("\n  " + SEP2 + "\n  BODY TEXT LENGTH DISTRIBUTION\n  " + SEP2)
+    print("\n  " + SEP2 + "\n  BODY TEXT LENGTH\n  " + SEP2)
     for k in ["<100","100-500","500-2K","2-10K","10-50K",">50K"]:
         bar = "#"*max(1,body_len_dist[k]//max(1,total//50))
         print("  {:<12s} {:>5d}  {}".format(k, body_len_dist[k], bar))
 
 def print_type_table(type_stats):
-    print("\n  " + SEP2 + "\n  PER-DIRECTORY BREAKDOWN\n  " + SEP2)
+    print("\n  " + SEP2 + "\n  DIRECTORY BREAKDOWN\n  " + SEP2)
     print("  {:<25s} {:>6s} {:>5s} {:>6s} {:>8s} {:>8s} {:>7s}".format(
         "Directory","Files","Bad","Bad%","AvgSize","AvgBody","Drupal%"))
     for t in sorted(type_stats.keys(),key=lambda k:-type_stats[k]["total"]):
@@ -123,24 +122,23 @@ def print_type_table(type_stats):
             t, n, bn, bp, flag, asize/1024, abody, dp))
 
 TYPE_DESCRIPTIONS = {
-    "workshop": {"family":"Family A (no-suffix)","note":"Core content. body(2010-16) -> session-content(2017+).","key_fields":["session-content","theme","speakers","policy-questions","sdgs","co-organizers","discussion-facilitation"]},
-    "open-forum": {"family":"Family B (-of suffix)","note":"Organized by ITU/UNESCO/OECD. -of suffix = Open Forum specific.","key_fields":["description-of","theme-of","organizers-of","speakers-of","rapporteur-of","report"]},
-    "lightning-talk": {"family":"Family C (-0 suffix)","note":"5-15 min talks. -0 from Drupal field collection.","key_fields":["description-0","speakers-0","organizers-0","duration-0","format-0","language"]},
-    "day-0-event": {"family":"Mixed (A+C)","note":"Pre-events. Light on Drupal, body text is primary.","key_fields":["description","description-0","organizers","organizers-0"]},
-    "launch-award": {"family":"Mixed","note":"Report launches + awards.","key_fields":["description","description-0","organizers","speakers","report"]},
-    "networking": {"family":"Family C (-0 suffix)","note":"Informal. Similar to Lightning Talks.","key_fields":["description-0","organizers-0","theme-0","format-0","duration-0"]},
-    "main-session": {"family":"Mixed","note":"Plenary/high-level. Sparse Drupal.","key_fields":["description","speakers","theme","organizers"]},
-    "town-hall": {"family":"Mixed","note":"Open discussions.","key_fields":["description","organizers","speakers","format"]},
-    "report": {"family":"N/A","note":"Post-session reports.","key_fields":["report","body","description"]},
-    "transcript": {"family":"N/A","note":"Verbatim transcripts.","key_fields":["body","description"]},
-    "schedule": {"family":"N/A","note":"Schedules/agendas.","key_fields":["body","description"]},
-    "participants": {"family":"N/A","note":"From indico.un.org.","key_fields":["body"]},
-    "dc-bpf-nri": {"family":"Mixed","note":"DC/BPF/NRI intersessional.","key_fields":["description","organizers","theme","report"]},
+    "workshop": {"family":"Family A (no-suffix)","note":"body(2010-16) -> session-content(2017+)","key_fields":["session-content","theme","speakers","policy-questions","sdgs","co-organizers","discussion-facilitation"]},
+    "open-forum": {"family":"Family B (-of suffix)","note":"ITU/UNESCO/OECD. -of = Open Forum specific","key_fields":["description-of","theme-of","organizers-of","speakers-of","rapporteur-of","report"]},
+    "lightning-talk": {"family":"Family C (-0 suffix)","note":"5-15 min. -0 from Drupal field collection","key_fields":["description-0","speakers-0","organizers-0","duration-0","format-0","language"]},
+    "day-0-event": {"family":"Mixed (A+C)","note":"Pre-events. Light Drupal, body is primary","key_fields":["description","description-0","organizers","organizers-0"]},
+    "launch-award": {"family":"Mixed","note":"Report launches + awards","key_fields":["description","description-0","organizers","speakers","report"]},
+    "networking": {"family":"Family C (-0 suffix)","note":"Informal. Similar to Lightning Talks","key_fields":["description-0","organizers-0","theme-0","format-0","duration-0"]},
+    "main-session": {"family":"Mixed","note":"Plenary/high-level. Sparse Drupal","key_fields":["description","speakers","theme","organizers"]},
+    "town-hall": {"family":"Mixed","note":"Open discussions","key_fields":["description","organizers","speakers","format"]},
+    "report": {"family":"N/A","note":"Post-session reports","key_fields":["report","body","description"]},
+    "transcript": {"family":"N/A","note":"Verbatim transcripts","key_fields":["body","description"]},
+    "schedule": {"family":"N/A","note":"Schedules/agendas","key_fields":["body","description"]},
+    "participants": {"family":"N/A","note":"indico.un.org","key_fields":["body"]},
+    "dc-bpf-nri": {"family":"Mixed","note":"DC/BPF/NRI intersessional","key_fields":["description","organizers","theme","report"]},
 }
 
 def analyze_drupal(type_stats, drupal_fields_by_type, drupal_labels_by_type):
     print("\n" + SEP + "\n  PART 2: DRUPAL FIELD ANALYSIS (classified types only)\n" + SEP)
-    print("  HOW TO VIEW: browser F12 -> search 'field--name-field-'")
     for ptype in sorted(drupal_fields_by_type.keys(), key=lambda k: -sum(drupal_fields_by_type[k].values())):
         fields = drupal_fields_by_type[ptype]; labels = drupal_labels_by_type[ptype]
         if not fields or sum(fields.values()) < 10: continue
@@ -150,7 +148,7 @@ def analyze_drupal(type_stats, drupal_fields_by_type, drupal_labels_by_type):
         print("\n  [{}]  {}  |  {} pages ({:.0f}% Drupal)  |  {} fields, {} unique".format(
             ptype.upper(), desc.get('family','?'), drupal_pages, drupal_pages/max(n_pages,1)*100,
             sum(fields.values()), len(fields)))
-        print("    Note: " + desc.get('note',''))
+        print("    " + desc.get('note',''))
         for fn, cnt in fields.most_common(10):
             pct = cnt/max(n_pages,1)*100
             print("    field_{:<45s} {:>5d} ({:>5.0f}%) {}".format(fn, cnt, pct, "#"*max(1,int(pct/5))))
@@ -174,7 +172,7 @@ def validate_json(extracted_dir, classified_dir=None):
     except Exception as e:
         print("  JSON PARSE ERROR: " + str(e)); return
     fsize = os.path.getsize(jp)/1024/1024
-    print("  Loaded {:,} records in {:.1f}s ({:.1f} MB)".format(len(data), 0, fsize))
+    print("  Loaded {:,} records ({:.1f} MB)".format(len(data), fsize))
     if not data: print("  EMPTY!"); return
     n = len(data)
     body_lens = [len(r.get("body_text","")) for r in data]; sbl = sorted(body_lens)
@@ -185,8 +183,8 @@ def validate_json(extracted_dir, classified_dir=None):
     dup_hashes = len(hashes)-len(set(hashes))
     null_years = sum(1 for r in data if r.get("year") is None)
     print("\n  Body: avg={:,.0f} median={:,} min={} max={:,}".format(sum(body_lens)/n, sbl[n//2], sbl[0], sbl[-1]))
-    print("  Empty body(<50): {} ({:.1f}%)  |  Has Drupal: {} ({:.1f}%)".format(empty_body, empty_body/n*100, has_drupal, has_drupal/n*100))
-    print("  Quality: Abs paths={}  Dup hashes={}  Null years={}".format(abs_paths, dup_hashes, null_years))
+    print("  Empty(<50): {} ({:.1f}%)  |  Has Drupal: {} ({:.1f}%)".format(empty_body, empty_body/n*100, has_drupal, has_drupal/n*100))
+    print("  Abs paths={}  Dup hashes={}  Null years={}".format(abs_paths, dup_hashes, null_years))
     type_data = defaultdict(list)
     for r in data: type_data[r.get("type","?")].append(r)
     print("\n  TYPE DISTRIBUTION ({} types):".format(len(type_data)))
@@ -208,20 +206,23 @@ def validate_documents(class_dir):
     for ext,cnt in sorted(by_ext.items()): print("    {:<8s} {:>5d}".format(ext, cnt))
 
 def main():
-    p = argparse.ArgumentParser(description="IGF Validation Report 鈥?full + classified")
-    p.add_argument("--full",default=None); p.add_argument("--classified",default=None)
-    p.add_argument("--extracted",default=None); p.add_argument("--no-drupal",action="store_true")
+    p = argparse.ArgumentParser(description="IGF Validation Report")
+    p.add_argument("--full", default=None)
+    p.add_argument("--classified", default=None)
+    p.add_argument("--extracted", default=None)
+    p.add_argument("--no-drupal", action="store_true")
     args = p.parse_args()
     cwd = os.path.dirname(os.path.abspath(__file__))
-    if not args.full:
-        dirs = sorted([d for d in os.listdir(cwd) if d.startswith("igf_full_") and os.path.isdir(os.path.join(cwd,d))],reverse=True)
-        args.full = os.path.join(cwd,dirs[0]) if dirs else None
-    if not args.classified:
-        dirs = sorted([d for d in os.listdir(cwd) if d.startswith("igf_classified_") and os.path.isdir(os.path.join(cwd,d))],reverse=True)
-        args.classified = os.path.join(cwd,dirs[0]) if dirs else None
-    if not args.extracted:
-        dirs = sorted([d for d in os.listdir(cwd) if d.startswith("igf_extracted_") and os.path.isdir(os.path.join(cwd,d))],reverse=True)
-        args.extracted = os.path.join(cwd,dirs[0]) if dirs else None
+
+    def _pick(pattern):
+        dirs = [d for d in os.listdir(cwd) if d.startswith(pattern) and os.path.isdir(os.path.join(cwd, d))]
+        if not dirs: return None
+        dirs.sort(key=lambda d: sum(1 for _ in Path(os.path.join(cwd, d)).rglob("*")), reverse=True)
+        return os.path.join(cwd, dirs[0])
+
+    if not args.full: args.full = _pick("igf_full_")
+    if not args.classified: args.classified = _pick("igf_classified_")
+    if not args.extracted: args.extracted = _pick("igf_extracted_")
 
     print("\n" + "#"*70 + "\n  IGF SCRAPE VALIDATION REPORT\n  Time: " + time.strftime('%Y-%m-%d %H:%M:%S'))
     print("  Full:       " + (args.full or 'N/A'))
@@ -229,14 +230,14 @@ def main():
     print("  Extracted:  " + (args.extracted or 'N/A') + "\n" + "#"*70)
 
     if args.full and os.path.isdir(args.full):
-        print("\n" + SEP + "\n  PART 1a: FULL SCRAPE DIRECTORY\n  Source: " + args.full + "\n" + SEP)
+        print("\n" + SEP + "\n  PART 1a: FULL SCRAPE\n  Source: " + args.full + "\n" + SEP)
         c_full, bf_full, sz_full, bl_full, ts_full, df_full, dl_full = scan_html(args.full)
         print_quality("FULL SCRAPE", c_full, sz_full, bl_full, ts_full, bf_full)
         print_type_table(ts_full)
         validate_documents(args.full)
 
     if args.classified and os.path.isdir(args.classified):
-        print("\n" + SEP + "\n  PART 1b: CLASSIFIED DIRECTORY\n  Source: " + args.classified + "\n" + SEP)
+        print("\n" + SEP + "\n  PART 1b: CLASSIFIED\n  Source: " + args.classified + "\n" + SEP)
         c_cls, bf_cls, sz_cls, bl_cls, ts_cls, df_cls, dl_cls = scan_html(args.classified)
         print_quality("CLASSIFIED", c_cls, sz_cls, bl_cls, ts_cls, bf_cls)
         print_type_table(ts_cls)
@@ -248,8 +249,8 @@ def main():
             print("\n  " + SEP2 + "\n  GAP: FULL -> CLASSIFIED\n  " + SEP2)
             print("  Full scrape:   {} files".format(full_total))
             print("  Classified:    {} files".format(cls_total))
-            print("  LOST:          {} files ({:.1f}%)".format(gap, gap/max(full_total,1)*100))
-            print("  Lost = duplicates removed during dedup + <300B pages dropped + _invalid pages")
+            print("  Lost:          {} files ({:.1f}%)".format(gap, gap/max(full_total,1)*100))
+            print("  (dedup by content hash + <300B dropped + _invalid pages)")
 
         if not args.no_drupal: analyze_drupal(ts_cls, df_cls, dl_cls)
 
@@ -264,7 +265,6 @@ def main():
         validate_documents(args.classified)
 
     validate_json(args.extracted, args.classified)
-
     print("\n" + "#"*70 + "\n  DONE at " + time.strftime('%Y-%m-%d %H:%M:%S') + "\n" + "#"*70 + "\n")
 
 if __name__ == "__main__": main()
