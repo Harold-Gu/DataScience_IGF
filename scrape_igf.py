@@ -178,20 +178,21 @@ DETAIL_RE=re.compile(r"igf-\d{4}-(?:ws|workshop|open-forum|lightning-talk|lightn
 
 def step_sessions(out_root,workers=WORKERS):
     print("\n"+"="*55+"\n  STEP 1: Sessions (2006-2025, 8 types)\n"+"="*55)
-    base=os.path.join(out_root,"01_sessions");all_tasks=[]
-    bl=["newsletter","call-for","registration","about","schedule","report","transcript"]
+    base=os.path.join(out_root,"01_sessions");all_tasks=[];bl=["newsletter","call-for","registration","about","schedule","report","transcript"]
     for stype,templates in SESSION_TYPES.items():
         _fetch_err[0]=None;_fetch_err[1]=0
         y_ok=0;y_skip=0
         for y in range(YEAR_START,YEAR_END+1):
-            links=[];tag=f"{stype}-{y}";any_ok=False
-            for tmpl in templates:
+            links_proposals=[];links_content=[];tag=f"{stype}-{y}";any_ok=False
+            for ti,tmpl in enumerate(templates):
                 r=_fetch(IGF_BASE+tmpl.format(year=y))
                 if r is None:
                     time.sleep(random.uniform(1.0,2.0))
                     continue
                 any_ok=True
                 soup=BeautifulSoup(r.text,"html.parser");seen=set()
+                is_proposal=("proposal"in tmpl or"proposals"in tmpl)
+                target=links_proposals if is_proposal else links_content
                 for a in soup.find_all("a",href=True):
                     href=a.get("href","")
                     if not href or href.startswith("#"):continue
@@ -199,22 +200,26 @@ def step_sessions(out_root,workers=WORKERS):
                     if full in seen:continue
                     seen.add(full)
                     if DETAIL_RE.search(href)and"/content/"in href:
-                        if f"igf-{y}-"in href:links.append(full)
+                        if f"igf-{y}-"in href:target.append(full)
                     elif"/content/"in href and f"igf-{y}-"in href:
                         if not any(kw in href.lower()for kw in bl):
-                            links.append(full)
-            links=list(dict.fromkeys(links))
-            if links:
-                print(f"  [{tag}] {len(links)} links")
+                            target.append(full)
+            links_proposals=list(dict.fromkeys(links_proposals))
+            links_content=list(dict.fromkeys(links_content))
+            total_links=len(links_proposals)+len(links_content)
+            if total_links>0:
+                print(f"  [{tag}] {len(links_proposals)} proposals + {len(links_content)} content = {total_links} links")
                 y_ok+=1
-                sub=os.path.join(base,tag)
-                for link in links:
-                    name=link.split("/")[-1].split("?")[0]
-                    fpath=os.path.join(sub,f"{_clean(name)}.html")
-                    all_tasks.append((link,fpath,tag))
+                for label,links_list in[("proposals",links_proposals),("content",links_content)]:
+                    if not links_list:continue
+                    sub=os.path.join(base,tag,label)
+                    for link in links_list:
+                        name=link.split("/")[-1].split("?")[0]
+                        fpath=os.path.join(sub,f"{_clean(name)}.html")
+                        all_tasks.append((link,fpath,tag))
             else:y_skip+=1
         if y_skip>0:
-            err_info = f" [{_fetch_err[0]}]" if _fetch_err[1] and y_ok==0 else ""
+            err_info=f" [{_fetch_err[0]}]"if _fetch_err[1]and y_ok==0 else""
             print(f"  [{stype}] {y_ok} yrs ok, {y_skip} skipped{err_info}")
     if not all_tasks:print("  No session links found.");return
     print(f"\n  Downloading {len(all_tasks)} pages...")
@@ -225,9 +230,22 @@ def step_reports(out_root,workers=WORKERS):
         fallback_templates=[IGF_BASE+"/en/igf-{year}-report",IGF_BASE+"/en/content/igf-{year}-final-report"])
 
 def step_transcripts(out_root,workers=WORKERS):
-    print("\n"+"="*55+"\n  STEP 3: Transcripts\n"+"="*55)
-    _download_yearly_pages(IGF_BASE+"/en/igf-{year}-transcripts",os.path.join(out_root,"03_transcripts"),workers,
-        fallback_templates=[IGF_BASE+"/en/content/igf-{year}-transcripts"])
+    print("\n"+"="*55+"\n  STEP 3: Transcripts (deep crawl)\n"+"="*55)
+    base=os.path.join(out_root,"03_transcripts")
+    for y in range(YEAR_START,YEAR_END+1):
+        sub=os.path.join(base,str(y))
+        for url_tmpl in[IGF_BASE+"/en/igf-{year}-transcripts",IGF_BASE+"/en/content/igf-{year}-transcripts"]:
+            test_url=url_tmpl.format(year=y)
+            r=_fetch(test_url)
+            if r is not None:
+                os.makedirs(sub,exist_ok=True)
+                with open(os.path.join(sub,"index.html"),"w",encoding="utf-8")as f:f.write(r.text)
+                print(f"\n  [{y}] {test_url}")
+                _deep_crawl_parallel(test_url,sub,workers)
+                break
+        else:
+            print(f"  [{y}] SKIP (all URL patterns failed)")
+        time.sleep(random.uniform(1.0,2.0))
 
 def step_schedules(out_root,workers=WORKERS):
     print("\n"+"="*55+"\n  STEP 4: Schedules\n"+"="*55)
