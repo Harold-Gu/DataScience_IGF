@@ -217,7 +217,7 @@ def main():
     def _pick(pattern):
         dirs = [d for d in os.listdir(cwd) if d.startswith(pattern) and os.path.isdir(os.path.join(cwd, d))]
         if not dirs: return None
-        dirs.sort(key=lambda d: sum(1 for _ in Path(os.path.join(cwd, d)).rglob("*")), reverse=True)
+        dirs.sort(reverse=True)
         return os.path.join(cwd, dirs[0])
 
     if not args.full: args.full = _pick("igf_full_")
