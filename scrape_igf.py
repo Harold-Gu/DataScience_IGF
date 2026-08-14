@@ -44,14 +44,19 @@ def _scope_key(fpath):
         return os.path.normcase(d).replace("\\","/")
     except:return str(fpath)
 
+def _scope_dir(dpath):
+    try:
+        return os.path.normcase(os.path.abspath(str(dpath))).replace("\\","/")
+    except:return str(dpath)
+
 def _mark_visited(url,scope=None):
-    key=(_norm_url(url),_scope_key(scope)if scope else"")
+    key=(_norm_url(url),_scope_dir(scope)if scope else"")
     with _visited_lock:
         if key in _visited_urls:return False
         _visited_urls.add(key);return True
 
 def _unmark_visited(url,scope=None):
-    key=(_norm_url(url),_scope_key(scope)if scope else"")
+    key=(_norm_url(url),_scope_dir(scope)if scope else"")
     with _visited_lock:_visited_urls.discard(key)
 
 def _try_inflight(url,scope=None):
@@ -107,7 +112,7 @@ def _get_tl_scraper():
     return _GLOBAL_SCRAPER
 
 _fetch_err=[None,0]
-def _fetch(url,timeout=25,retries=5):
+def _fetch(url,timeout=25,retries=5,wb_year=None):
     reason=None
     for attempt in range(retries):
         _rate_wait()
@@ -115,6 +120,7 @@ def _fetch(url,timeout=25,retries=5):
             r=_get_tl_scraper().get(url,timeout=timeout)
             if r.status_code==404:
                 if _fetch_err[1]==0:_fetch_err[0]="404";_fetch_err[1]=1
+                if wb_year is not None:return _fetch_wb(url,wb_year)
                 return None
             if r.status_code==429:
                 _rate_backoff();reason="429"
@@ -127,15 +133,33 @@ def _fetch(url,timeout=25,retries=5):
             _rate_recover()
             if len(r.text)<300:
                 if _fetch_err[1]==0:_fetch_err[0]=f"short({len(r.text)}b)";_fetch_err[1]=1
+                if wb_year is not None:return _fetch_wb(url,wb_year)
                 return None
             return r
         except Exception as e:
             reason=type(e).__name__
             if _fetch_err[1]==0:_fetch_err[0]=f"{type(e).__name__}:{str(e)[:80]}";_fetch_err[1]=1
             if attempt<retries-1:time.sleep(2**(attempt+1)+random.uniform(0.5,2));continue
+            if wb_year is not None and reason not in("429","502","503","504"):return _fetch_wb(url,wb_year)
             return None
-    if reason:_record_failed(url,"",reason)
     return None
+
+def _year_from_text(txt):
+    m=re.search(r"(20\d{2})",str(txt))
+    return m.group(1)if m else None
+
+def _fetch_wb(url,year=None):
+    ts=str(year)if year else"2020"
+    candidates=[f"https://web.archive.org/web/{ts}/"+url,f"https://web.archive.org/web/"+url]
+    for cand in candidates:
+        _rate_wait()
+        try:
+            r=_get_tl_scraper().get(cand,timeout=45)
+            if r.status_code==200 and len(r.text)>=300:return r
+        except Exception:
+            pass
+    return None
+
 def _clean(s):
     return re.sub(r'[\\/*?:"<>|]',"",str(s)).replace("\n"," ").strip()
 
@@ -255,6 +279,8 @@ def _download_one(scraper,url,fpath,max_retries=3):
             _rate_wait()
             try:
                 r=scraper.get(url,timeout=30)
+                if r.status_code==404:
+                    reason="HTTPError";break
                 if r.status_code==429:
                     _rate_backoff();reason="429"
                     time.sleep(min(2**(attempt+1),20)+random.uniform(0.5,2));continue
@@ -275,6 +301,22 @@ def _download_one(scraper,url,fpath,max_retries=3):
             except Exception as e:
                 reason=type(e).__name__
                 if attempt<max_retries-1:time.sleep(2**(attempt+1)+random.uniform(0.5,2));continue
+        if reason in("HTTPError","bad_magic","short"):
+            wb_year=_year_from_text(fpath)or"2020"
+            for cand in(f"https://web.archive.org/web/{wb_year}/"+url,f"https://web.archive.org/web/"+url):
+                _rate_wait()
+                try:
+                    wbr=scraper.get(cand,timeout=45)
+                    if wbr.status_code!=200:continue
+                    wdata=wbr.content
+                    if is_bin:
+                        if not _bin_valid(url,wdata[:8],len(wdata)):continue
+                    elif len(wdata)<300:continue
+                    _atomic_write_bytes(fpath,wdata)
+                    with _visited_lock:_visited_urls.add(key)
+                    return"ok"
+                except Exception:
+                    continue
         _record_failed(url,fpath,reason)
         return"fail"
     finally:
@@ -387,7 +429,7 @@ def step_sessions(out_root,workers=WORKERS):
 def step_reports(out_root,workers=WORKERS):
     print("\n"+"="*55+"\n  STEP 2: Reports\n"+"="*55)
     _download_yearly_pages(IGF_BASE+"/en/content/igf-{year}-report",os.path.join(out_root,"02_reports"),workers,
-        fallback_templates=[IGF_BASE+"/en/igf-{year}-report",IGF_BASE+"/en/content/igf-{year}-final-report"])
+        fallback_templates=[IGF_BASE+"/en/igf-{year}-report",IGF_BASE+"/en/content/igf-{year}-final-report",IGF_BASE+"/en/igf-{year}-final-report"])
 
 def step_transcripts(out_root,workers=WORKERS):
     print("\n"+"="*55+"\n  STEP 3: Transcripts (deep crawl)\n"+"="*55)
@@ -397,6 +439,7 @@ def step_transcripts(out_root,workers=WORKERS):
         for url_tmpl in[IGF_BASE+"/en/igf-{year}-transcripts",IGF_BASE+"/en/content/igf-{year}-transcripts"]:
             test_url=url_tmpl.format(year=y)
             r=_fetch(test_url)
+            if r is None:r=_fetch_wb(test_url,y)
             if r is not None:
                 os.makedirs(sub,exist_ok=True)
                 _atomic_write_text(os.path.join(sub,"index.html"),r.text)
@@ -409,8 +452,22 @@ def step_transcripts(out_root,workers=WORKERS):
 
 def step_schedules(out_root,workers=WORKERS):
     print("\n"+"="*55+"\n  STEP 4: Schedules\n"+"="*55)
-    _download_yearly_pages(IGF_BASE+"/en/content/igf-{year}-schedule",os.path.join(out_root,"04_schedules"),workers,
-        fallback_templates=[IGF_BASE+"/en/igf-{year}-schedule"])
+    base=os.path.join(out_root,"04_schedules")
+    for y in range(YEAR_START,YEAR_END+1):
+        sub=os.path.join(base,str(y))
+        for url_tmpl in[IGF_BASE+"/en/content/igf-{year}-schedule",IGF_BASE+"/en/igf-{year}-schedule"]:
+            test_url=url_tmpl.format(year=y)
+            r=_fetch(test_url)
+            if r is None:r=_fetch_wb(test_url,y)
+            if r is not None:
+                os.makedirs(sub,exist_ok=True)
+                _atomic_write_text(os.path.join(sub,"index.html"),r.text)
+                print(f"\n  [{y}] {test_url}")
+                _deep_crawl_parallel(test_url,sub,workers)
+                break
+        else:
+            print(f"  [{y}] SKIP (all URL patterns failed)")
+        time.sleep(random.uniform(1.0,2.0))
 
 def _download_yearly_pages(url_template,out_base,workers,fallback_templates=None):
     if fallback_templates is None:
@@ -421,13 +478,18 @@ def _download_yearly_pages(url_template,out_base,workers,fallback_templates=None
             test_url=tmpl.format(year=y)
             r=_fetch(test_url)
             if r is not None:
-                seed_url=test_url
-                os.makedirs(sub,exist_ok=True)
-                _atomic_write_text(os.path.join(sub,"index.html"),r.text)
-                break
+                seed_url=test_url;break
+        if seed_url is None:
+            for tmpl in [url_template]+list(fallback_templates):
+                test_url=tmpl.format(year=y)
+                r=_fetch_wb(test_url,y)
+                if r is not None:
+                    seed_url=test_url;break
         if seed_url is None:
             print(f"  [{y}] SKIP (all URL patterns failed)")
             continue
+        os.makedirs(sub,exist_ok=True)
+        _atomic_write_text(os.path.join(sub,"index.html"),r.text)
         page=0;total_items=0;pages_saved=0;page_urls=set()
         while True:
             url=seed_url
@@ -515,6 +577,7 @@ def step_archived_dashboard(out_root,years=None,workers=WORKERS):
 def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
     os.makedirs(out_dir,exist_ok=True)
     seed_year=re.search(r"(20\d{2})",seed_url)
+    if not seed_year:seed_year=re.search(r"(20\d{2})",str(out_dir))
     seed_year=seed_year.group(1)if seed_year else""
     files_dir=os.path.join(out_dir,"files");os.makedirs(files_dir,exist_ok=True)
     dropped_path=os.path.join(out_dir,"_dropped_urls.txt")
@@ -536,11 +599,17 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                 continue
             url,depth,current_dir=item
             try:
-                if not _mark_visited(url,current_dir):continue
-                r=_fetch(url)
+                if not _mark_visited(url,current_dir):
+                    if depth==0 and _norm_url(url)==_norm_url(seed_url):
+                        print(f"    [WARN] seed already visited, skipped: {url}")
+                    continue
+                name=url.split("/")[-1].split("?")[0]or f"page_{hashlib.sha1(url.encode()).hexdigest()[:8]}"
+                page_path=os.path.join(current_dir,f"{_clean(name)}.html")
+                r=_fetch(url,wb_year=seed_year)
                 if r is None:
                     _unmark_visited(url,current_dir)
                     with stats_lock:local_stats["errors"]+=1
+                    _record_failed(url,page_path,"fetch")
                     if depth==0:
                         err_path=os.path.join(current_dir,"_FETCH_FAILED.txt")
                         try:
@@ -549,9 +618,9 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                     continue
                 html=r.text
                 is_dashboard_spa=("IGF Schedule" in html[:5000] and "Calendar view" in html[:8000])
-                name=url.split("/")[-1].split("?")[0]or f"page_{hashlib.sha1(url.encode()).hexdigest()[:8]}"
-                page_path=os.path.join(current_dir,f"{_clean(name)}.html")
-                if not os.path.exists(page_path):_atomic_write_text(page_path,html)
+                if not os.path.exists(page_path):
+                    if _is_igf_domain(url):_atomic_write_text(page_path,html)
+                    else:_atomic_write_bytes(page_path,r.content)
                 with stats_lock:local_stats["pages"]+=1
                 soup=BeautifulSoup(html,"html.parser")
                 main=soup.find("main")or soup.find(id="main-content")or soup
@@ -571,15 +640,12 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                         if depth<MAX_DEPTH:
                             if task_queue.qsize()<MAX_QUEUE:task_queue.put((full,depth+1,current_dir))
                             else:_log_dropped(full)
-                    elif depth==0:
-                        ext_name=_clean(full.split("/")[-1].split("?")[0])or f"ext_{hashlib.sha1(full.encode()).hexdigest()[:8]}"
-                        ext_path=os.path.join(current_dir,f"{ext_name}.html")
-                        _download_one(scraper,full,ext_path)
-                        if task_queue.qsize()<MAX_QUEUE:
-                            url_low=full.lower()
-                            if (seed_year and seed_year in url_low) or any(kw in url_low for kw in["igf","intgov","internet-governance"]):
-                                task_queue.put((full,depth+1,current_dir))
-                        else:_log_dropped(full)
+                    elif depth<MAX_DEPTH:
+                        url_low=full.lower()
+                        relevant=(seed_year and seed_year in url_low)or any(kw in url_low for kw in["igf","intgov","internet-governance","wsis"])
+                        if depth==0 or relevant:
+                            if task_queue.qsize()<MAX_QUEUE:task_queue.put((full,depth+1,current_dir))
+                            else:_log_dropped(full)
                 for nxt in _next_page_links(soup,url):
                     if task_queue.qsize()<MAX_QUEUE:task_queue.put((nxt,depth,current_dir))
                     else:_log_dropped(nxt)
@@ -760,13 +826,17 @@ def run_classify(src_dir,out_dir=None,workers=4,dry_run=False):
         futures={ex.submit(_process_html_file,fp,src):fp for fp in html_files}
         for i,future in enumerate(as_completed(futures),1):
             r=future.result()
-            if r is None:continue
-            if r["hash"]in seen_hashes:dups+=1;continue
-            seen_hashes.add(r["hash"]);results.append(r)
-            if not r["valid"]:
-                invalid_count+=1
-                for iss in r["issues"]:issue_stats[iss]+=1
-            if i%1000==0:print(f"    {i}/{len(html_files)} (dups={dups}, invalid={invalid_count})")
+            if r is not None:results.append(r)
+            if i%1000==0:print(f"    {i}/{len(html_files)}")
+    results.sort(key=lambda r:str(r.get("path")or""))
+    uniq=[]
+    for r in results:
+        if r["hash"]in seen_hashes:dups+=1;continue
+        seen_hashes.add(r["hash"]);uniq.append(r)
+        if not r["valid"]:
+            invalid_count+=1
+            for iss in r["issues"]:issue_stats[iss]+=1
+    results=uniq
     print(f"  Done: {len(results)} unique, {dups} duplicates, {invalid_count} invalid")
     if issue_stats:
         print(f"  Validation issues:")
@@ -880,8 +950,8 @@ def _extract_one_file(fp,src_root):
                "year":year,"title":title,"drupal_fields":drupal_fields,
                "body_text":body_text,"headings":headings,"meta":meta,
                "links":links,"content_hash":chash,"size_bytes":len(html)}
-    except Exception as e:
-        return{"file":os.path.basename(fp),"error":str(e)}
+    except Exception:
+        return None
 
 def run_extract(src_dir,out_dir=None,workers=4):
     src=os.path.abspath(src_dir)
@@ -899,11 +969,16 @@ def run_extract(src_dir,out_dir=None,workers=4):
         for i,future in enumerate(as_completed(futures),1):
             r=future.result()
             if r is None:noise_skipped+=1;continue
-            h=r.get('content_hash','')
-            if h and h in seen:dups+=1;continue
-            if h:seen.add(h)
             results.append(r)
-            if i%500==0:print(f"    {i}/{len(html_files)} ({len(results)} unique)")
+            if i%500==0:print(f"    {i}/{len(html_files)}")
+    results.sort(key=lambda r:str(r.get("rel_path")or r.get("file")or""))
+    uniq=[]
+    for r in results:
+        h=r.get('content_hash','')
+        if h and h in seen:dups+=1;continue
+        if h:seen.add(h)
+        uniq.append(r)
+    results=uniq
     print(f"  Extracted: {len(results)} unique, {dups} duplicates, {noise_skipped} noise/invalid skipped")
     all_path=os.path.join(out,'all.json')
     with open(all_path,'w',encoding='utf-8')as f:json.dump(results,f,ensure_ascii=False,indent=2)
