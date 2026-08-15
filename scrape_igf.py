@@ -354,7 +354,7 @@ def _download_batch(tasks,workers):
                 now=time.time()
                 if i%200==0 or i==len(futs):
                     print(f"      [{label}] {i}/{len(futs)}");_print_stat();last_beat=now
-                elif now-last_beat>=30:
+                elif now-last_beat>=120:
                     print(f"      [{label}] waiting... {i}/{len(futs)}");_print_stat();last_beat=now
         return results
     results=_run(tasks,"p1")
@@ -676,19 +676,23 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                 task_queue.task_done()
     threads=[threading.Thread(target=_worker,daemon=True)for _ in range(workers)]
     for t in threads:t.start()
-    last_q=-1;idle_count=0;last_beat=time.time()
+    last_q=-1;idle_count=0;last_beat=time.time();last_sig=(0,0,0)
     while True:
         time.sleep(2)
         with task_queue.mutex:unfinished=task_queue.unfinished_tasks
         qsize=task_queue.qsize()
         with stats_lock:s=dict(local_stats)
         now=time.time()
+        sig=(s["pages"],s["files"],s["errors"])
         if qsize!=last_q and(qsize%50==0 or qsize==0):
             print(f"    [q={qsize}] {s['pages']}p {s['files']}f",flush=True)
-            last_q=qsize;last_beat=now
-        elif now-last_beat>=20:
-            print(f"    [busy] {s['pages']}p {s['files']}f {s['errors']}e (inflight={unfinished})",flush=True)
-            last_beat=now
+            last_q=qsize;last_beat=now;last_sig=sig
+        elif now-last_beat>=60:
+            if sig!=last_sig:
+                print(f"    [busy] {s['pages']}p {s['files']}f {s['errors']}e",flush=True)
+            else:
+                print(f"    [busy] no progress: {s['pages']}p {s['files']}f {s['errors']}e (inflight={unfinished})",flush=True)
+            last_beat=now;last_sig=sig
         if unfinished==0:
             idle_count+=1
             if idle_count>=3:break
