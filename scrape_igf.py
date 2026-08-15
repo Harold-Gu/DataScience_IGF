@@ -139,6 +139,10 @@ def _fetch(url,timeout=25,retries=5,wb_year=None):
         except Exception as e:
             reason=type(e).__name__
             if _fetch_err[1]==0:_fetch_err[0]=f"{type(e).__name__}:{str(e)[:80]}";_fetch_err[1]=1
+            if reason=="HTTPError":
+                return _fetch_wb(url,wb_year)if wb_year is not None else None
+            if wb_year is not None and attempt>=1:
+                return _fetch_wb(url,wb_year)if reason not in("429","502","503","504")else None
             if attempt<retries-1:time.sleep(2**(attempt+1)+random.uniform(0.5,2));continue
             if wb_year is not None and reason not in("429","502","503","504"):return _fetch_wb(url,wb_year)
             return None
@@ -148,16 +152,31 @@ def _year_from_text(txt):
     m=re.search(r"(20\d{2})",str(txt))
     return m.group(1)if m else None
 
+_wb_lock=threading.Lock()
+_wb_state={"fails":0,"disabled":False}
+def _wb_get(url,timeout=20,scraper=None):
+    with _wb_lock:
+        if _wb_state["disabled"]:return None
+    _rate_wait()
+    try:
+        r=(scraper or _get_tl_scraper()).get(url,timeout=timeout)
+        if r.status_code==200 and len(r.text)>=300:
+            with _wb_lock:_wb_state["fails"]=0
+            return r
+        return None
+    except Exception:
+        with _wb_lock:
+            _wb_state["fails"]+=1
+            if _wb_state["fails"]>=5 and not _wb_state["disabled"]:
+                _wb_state["disabled"]=True
+                print("  [WB] web.archive.org unreachable, Wayback fallback disabled for this run",flush=True)
+        return None
+
 def _fetch_wb(url,year=None):
     ts=str(year)if year else"2020"
-    candidates=[f"https://web.archive.org/web/{ts}/"+url,f"https://web.archive.org/web/"+url]
-    for cand in candidates:
-        _rate_wait()
-        try:
-            r=_get_tl_scraper().get(cand,timeout=45)
-            if r.status_code==200 and len(r.text)>=300:return r
-        except Exception:
-            pass
+    r=_wb_get(f"https://web.archive.org/web/{ts}/"+url)
+    if r is not None:return r
+    if ts!="2020":return _wb_get(f"https://web.archive.org/web/"+url)
     return None
 
 def _clean(s):
@@ -293,30 +312,27 @@ def _download_one(scraper,url,fpath,max_retries=3):
                     if not _bin_valid(url,data[:8],len(data)):
                         reason="bad_magic";time.sleep(1.5);continue
                 elif len(data)<300:
-                    reason=f"short({len(data)}b)";time.sleep(1.5);continue
+                    reason="short";time.sleep(1.5);continue
                 _rate_recover()
                 _atomic_write_bytes(fpath,data)
                 with _visited_lock:_visited_urls.add(key)
                 return"ok"
             except Exception as e:
                 reason=type(e).__name__
+                if reason=="HTTPError":break
                 if attempt<max_retries-1:time.sleep(2**(attempt+1)+random.uniform(0.5,2));continue
         if reason in("HTTPError","bad_magic","short"):
             wb_year=_year_from_text(fpath)or"2020"
             for cand in(f"https://web.archive.org/web/{wb_year}/"+url,f"https://web.archive.org/web/"+url):
-                _rate_wait()
-                try:
-                    wbr=scraper.get(cand,timeout=45)
-                    if wbr.status_code!=200:continue
-                    wdata=wbr.content
-                    if is_bin:
-                        if not _bin_valid(url,wdata[:8],len(wdata)):continue
-                    elif len(wdata)<300:continue
-                    _atomic_write_bytes(fpath,wdata)
-                    with _visited_lock:_visited_urls.add(key)
-                    return"ok"
-                except Exception:
-                    continue
+                wbr=_wb_get(cand,scraper=scraper)
+                if wbr is None:continue
+                wdata=wbr.content
+                if is_bin:
+                    if not _bin_valid(url,wdata[:8],len(wdata)):continue
+                elif len(wdata)<300:continue
+                _atomic_write_bytes(fpath,wdata)
+                with _visited_lock:_visited_urls.add(key)
+                return"ok"
         _record_failed(url,fpath,reason)
         return"fail"
     finally:
@@ -329,13 +345,17 @@ def _download_batch(tasks,workers):
         results={}
         with ThreadPoolExecutor(max_workers=workers)as ex:
             futs={ex.submit(_download_one,_get_tl_scraper(),u,f):(u,f)for u,f,_ in ts}
+            last_beat=time.time()
             for i,fut in enumerate(as_completed(futs),1):
                 u,fp=futs[fut]
                 try:r=fut.result()
                 except Exception:r="fail"
                 results[(u,fp)]=r;_add_stat(r)
+                now=time.time()
                 if i%200==0 or i==len(futs):
-                    print(f"      [{label}] {i}/{len(futs)}");_print_stat()
+                    print(f"      [{label}] {i}/{len(futs)}");_print_stat();last_beat=now
+                elif now-last_beat>=30:
+                    print(f"      [{label}] waiting... {i}/{len(futs)}");_print_stat();last_beat=now
         return results
     results=_run(tasks,"p1")
     ok=sum(1 for r in results.values()if r=="ok")
@@ -656,15 +676,19 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                 task_queue.task_done()
     threads=[threading.Thread(target=_worker,daemon=True)for _ in range(workers)]
     for t in threads:t.start()
-    last_q=-1;idle_count=0
+    last_q=-1;idle_count=0;last_beat=time.time()
     while True:
         time.sleep(2)
         with task_queue.mutex:unfinished=task_queue.unfinished_tasks
         qsize=task_queue.qsize()
         with stats_lock:s=dict(local_stats)
+        now=time.time()
         if qsize!=last_q and(qsize%50==0 or qsize==0):
-            print(f"    [q={qsize}] {s['pages']}p {s['files']}f")
-            last_q=qsize
+            print(f"    [q={qsize}] {s['pages']}p {s['files']}f",flush=True)
+            last_q=qsize;last_beat=now
+        elif now-last_beat>=20:
+            print(f"    [busy] {s['pages']}p {s['files']}f {s['errors']}e (inflight={unfinished})",flush=True)
+            last_beat=now
         if unfinished==0:
             idle_count+=1
             if idle_count>=3:break
