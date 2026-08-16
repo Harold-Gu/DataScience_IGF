@@ -1,0 +1,285 @@
+﻿{
+    "window_chars":  4000,
+    "docs":  {
+                 "doc_emerging_2007":  {
+                                           "rel_path":  "_invalid/other/IGF2-EmergingIssues-15NOV07.txt.html",
+                                           "speakers":  [
+                                                            "AUGUSTO GADELHA VIEIRA",
+                                                            "NIK GOWING"
+                                                        ],
+                                           "session_type":  "main session: emerging issues",
+                                           "year":  2007,
+                                           "themes":  [
+                                                          "emerging issues",
+                                                          "future of the Internet",
+                                                          "next IGF in India",
+                                                          "virtual participation"
+                                                      ],
+                                           "summary":  "Emerging issues session looking ahead to the next IGF in India; Gowing relays interventions: BSA wants accurate workshop summary reports, Amnesty International wants the IGF to be more virtual and less exclusive.",
+                                           "moderator":  "NIK GOWING",
+                                           "title":  "IGF 2007 Emerging Issues Session",
+                                           "venue":  "Rio de Janeiro, Brazil"
+                                       },
+                 "doc_openness_2007":  {
+                                           "rel_path":  "_invalid/other/IGF2-Openness-14NOV07.txt.html",
+                                           "speakers":  [
+                                                            "HELOISA MAGALHAES",
+                                                            "RONALDO LEMOS"
+                                                        ],
+                                           "session_type":  "main session: openness",
+                                           "year":  2007,
+                                           "themes":  [
+                                                          "openness",
+                                                          "copyright exceptions",
+                                                          "ISP liability",
+                                                          "collaborative production"
+                                                      ],
+                                           "summary":  "Openness session: Ronaldo Lemos lays out three dimensions of openness, starting with the legal dimension (exceptions and limitations to copyright; ISP liability) and collaborative production of culture and knowledge.",
+                                           "moderator":  "RONALDO LEMOS",
+                                           "title":  "IGF 2007 Main Session on Openness",
+                                           "venue":  "Rio de Janeiro, Brazil"
+                                       },
+                 "doc_opening_2006":  {
+                                          "rel_path":  "_invalid/other/IGF-OpeningSession-301006.txt.html",
+                                          "speakers":  [
+                                                           "MINISTER MICHALIS LIAPIS"
+                                                       ],
+                                          "session_type":  "opening ceremony",
+                                          "year":  2006,
+                                          "themes":  [
+                                                         "multistakeholder cooperation",
+                                                         "Internet governance",
+                                                         "Tunis Agenda follow-up",
+                                                         "ICANN autonomy"
+                                                     ],
+                                          "summary":  "Inaugural IGF opening in Athens: Greece hosts the first IGF; speakers stress the multistakeholder open process, the Tunis Agenda, ICANN\u0027s new autonomy, and including people left out by the digital transition.",
+                                          "moderator":  null,
+                                          "title":  "IGF 2006 Opening Ceremony",
+                                          "venue":  "Athens, Greece"
+                                      },
+                 "doc_diversity_2007":  {
+                                            "rel_path":  "_invalid/other/IGF2-Diversity-13NOV07.txt.html",
+                                            "speakers":  [
+                                                             "CHRIS DISSPAIN",
+                                                             "GILBERTO GIL"
+                                                         ],
+                                            "session_type":  "main session: diversity",
+                                            "year":  2007,
+                                            "themes":  [
+                                                           "cultural diversity",
+                                                           "multilingualism",
+                                                           "free culture",
+                                                           "piracy versus free access"
+                                                       ],
+                                            "summary":  "Diversity session chaired by Brazil\u0027s culture minister Gilberto Gil: diversity as a political flag of social and cultural recognition; balancing piracy against free access to knowledge.",
+                                            "moderator":  "CHRIS DISSPAIN",
+                                            "title":  "IGF 2007 Main Session on Diversity",
+                                            "venue":  "Rio de Janeiro, Brazil"
+                                        },
+                 "doc_panel1_2006":  {
+                                         "rel_path":  "_invalid/other/IGF-Panel1-301006.txt.html",
+                                         "speakers":  [
+                                                          "CHAIRMAN VOUELOUMIS",
+                                                          "KEN CUKIER"
+                                                      ],
+                                         "session_type":  "main session: setting the scene",
+                                         "year":  2006,
+                                         "themes":  [
+                                                        "transition",
+                                                        "multistakeholder institutions",
+                                                        "roles of government, business, people"
+                                                    ],
+                                         "summary":  "Opening panel frames the IGF as a transition point: the Internet is 40 years old and still evolving; government, business and people each have roles; the forum is an untried multistakeholder institution.",
+                                         "moderator":  "KEN CUKIER",
+                                         "title":  "IGF 2006 Panel 1 Setting the Scene",
+                                         "venue":  "Athens, Greece"
+                                     },
+                 "doc_closing_2009":  {
+                                          "rel_path":  "_invalid/other/Sharm%20El%20Sheikh%2018%20November%202009%20Closing.txt.html",
+                                          "speakers":  [
+                                                           "H.E. TAREK KAMEL",
+                                                           "SHA ZUKANG"
+                                                       ],
+                                          "session_type":  "closing ceremony",
+                                          "year":  2009,
+                                          "themes":  [
+                                                         "IGF maturity and progress",
+                                                         "children and youth",
+                                                         "education",
+                                                         "next IGF in Vilnius"
+                                                     ],
+                                          "summary":  "Closing ceremony: Sha Zukang traces IGF maturation from Athens through Rio and Hyderabad to Sharm El Sheikh, highlights children and youth as drivers of new technologies, and looks ahead to the 5th IGF in Vilnius, Lithuania.",
+                                          "moderator":  null,
+                                          "title":  "IGF 2009 Closing Ceremony",
+                                          "venue":  "Sharm El Sheikh, Egypt"
+                                      },
+                 "doc_opening_2007":  {
+                                          "rel_path":  "_invalid/other/IGF2-opening-12NOV07.txt.html",
+                                          "speakers":  [
+                                                           "MARKUS KUMMER",
+                                                           "SHA ZUKANG"
+                                                       ],
+                                          "session_type":  "opening ceremony",
+                                          "year":  2007,
+                                          "themes":  [
+                                                         "peace, security and development",
+                                                         "child protection",
+                                                         "digital divide",
+                                                         "non-decision dialogue forum"
+                                                     ],
+                                          "summary":  "Rio opening: the UN Under-Secretary-General delivers the Secretary-General\u0027s message - one billion users versus five billion without access, child safety, and IGF as a non-negotiating dialogue platform of equals.",
+                                          "moderator":  "MARKUS KUMMER",
+                                          "title":  "IGF 2007 Opening Ceremony",
+                                          "venue":  "Rio de Janeiro, Brazil"
+                                      },
+                 "doc_access_2007":  {
+                                         "rel_path":  "_invalid/other/IGF2-Access-13NOV07.txt.html",
+                                         "title":  "Internet Governance Forum Rio de Janeiro, Brazil 13 November 2007 Access",
+                                         "year":  2007,
+                                         "venue":  "Rio de Janeiro, Brazil",
+                                         "session_type":  "main session",
+                                         "speakers":  [
+                                                          "MARKUS KUMMER",
+                                                          "HELIO COSTA"
+                                                      ],
+                                         "moderator":  "MARKUS KUMMER",
+                                         "themes":  [
+                                                        "internet access",
+                                                        "infrastructure",
+                                                        "digital divide",
+                                                        "internet governance"
+                                                    ],
+                                         "summary":  "Opening of the IGF 2007 Access main session in Rio de Janeiro: Markus Kummer introduces the session and Brazilian communications minister Helio Costa makes introductory remarks on access, infrastructure costs and the digital divide."
+                                     },
+                 "doc_closing_2006":  {
+                                          "rel_path":  "_invalid/other/IGF-Closing%20Ceremony.txt.html",
+                                          "title":  "Internet Governance Forum 2 November 2006 Closing Ceremony",
+                                          "year":  2006,
+                                          "venue":  "Athens, Greece",
+                                          "session_type":  "closing ceremony",
+                                          "speakers":  [
+                                                           "MINISTER LIAPIS",
+                                                           "CHAIRMAN DESAI"
+                                                       ],
+                                          "moderator":  "MINISTER LIAPIS",
+                                          "themes":  [
+                                                         "multistakeholder participation",
+                                                         "Athens meeting review",
+                                                         "internet governance"
+                                                     ],
+                                          "summary":  "Closing ceremony of the inaugural IGF in Athens: Minister Liapis welcomes participants and thanks them, then special advisor to the UN Secretary-General Nitin Desai reviews the four days and thanks the organizing team."
+                                      },
+                 "doc_takingstock_2007":  {
+                                              "rel_path":  "_invalid/other/IGF2-TakingStock-15NOV07.txt.html",
+                                              "speakers":  [
+                                                               "NITIN DESAI",
+                                                               "HADIL DA ROCHA VIANNA"
+                                                           ],
+                                              "session_type":  "main session: taking stock and the way forward",
+                                              "year":  2007,
+                                              "themes":  [
+                                                             "taking stock",
+                                                             "way forward",
+                                                             "MAG selection and financing"
+                                                         ],
+                                              "summary":  "Taking stock session co-chaired by Desai and Vianna: agenda covers selection and appointment of the advisory group and possible ways of financing the IGF, within the IGF\u0027s role as a multistakeholder dialogue space.",
+                                              "moderator":  "NITIN DESAI",
+                                              "title":  "IGF 2007 Taking Stock and the Way Forward",
+                                              "venue":  "Rio de Janeiro, Brazil"
+                                          },
+                 "doc_summing_2006":  {
+                                          "rel_path":  "_invalid/other/IGF-Summing_Up_Nov_1.txt.html",
+                                          "speakers":  [
+                                                           "CHAIRMAN DESAI",
+                                                           "SECRETARY KUMMER"
+                                                       ],
+                                          "session_type":  "summing up session",
+                                          "year":  2006,
+                                          "themes":  [
+                                                         "reporting session",
+                                                         "remote participation",
+                                                         "openness",
+                                                         "access to knowledge"
+                                                     ],
+                                          "summary":  "Morning reporting session where Desai and Kummer recap the previous day\u0027s main sessions: openness discussions balanced freedom of expression with responsible use, and remote participation ran via blogs, chat and e-mail despite wireless problems.",
+                                          "moderator":  "CHAIRMAN DESAI",
+                                          "title":  "IGF 2006 Summing Up Session",
+                                          "venue":  "Athens, Greece"
+                                      },
+                 "doc_cir_2009":  {
+                                      "rel_path":  "_invalid/other/Sharm%20El%20Sheikh%2016%20November%202009%20Managing%20Critical%20Internet%20Resources.txt.html",
+                                      "speakers":  [
+                                                       "NITIN DESAI"
+                                                   ],
+                                      "session_type":  "main session: managing critical internet resources",
+                                      "year":  2009,
+                                      "themes":  [
+                                                     "critical Internet resources",
+                                                     "IPv4 to IPv6 transition",
+                                                     "new TLDs and IDNs",
+                                                     "Affirmation of Commitments",
+                                                     "enhanced cooperation"
+                                                 ],
+                                      "summary":  "First thematic session of IGF 2009 with a four-part agenda: IPv4-to-IPv6 transition, new TLDs/IDNs for development, the Affirmation of Commitments and IANA contract, and enhanced cooperation with internationalization of critical resource management.",
+                                      "moderator":  "NITIN DESAI",
+                                      "title":  "IGF 2009 Managing Critical Internet Resources",
+                                      "venue":  "Sharm El Sheikh, Egypt"
+                                  },
+                 "doc_consult_2007":  {
+                                          "rel_path":  "_invalid/other/13_February_Consult_2007.txt.html",
+                                          "title":  "13 February 2007 IGF Consultations Geneva - Taking stock and the way forward",
+                                          "year":  2007,
+                                          "venue":  "Geneva, Switzerland",
+                                          "session_type":  "open consultation",
+                                          "speakers":  [
+                                                           "CHAIRMAN DESAI",
+                                                           "SECRETARY KUMMER"
+                                                       ],
+                                          "moderator":  "CHAIRMAN DESAI",
+                                          "themes":  [
+                                                         "taking stock",
+                                                         "Athens meeting assessment",
+                                                         "advisory group",
+                                                         "open consultations"
+                                                     ],
+                                          "summary":  "Open consultation in Geneva on taking stock of the Athens IGF and the way forward: Chairman Desai explains the purpose of the meeting, to assess the lessons from Athens and report them to the Secretary-General."
+                                      },
+                 "doc_access_2009":  {
+                                         "rel_path":  "_invalid/other/Sharm%20El%20Sheikh%2017%20November%202009%20Access.txt.html",
+                                         "speakers":  [
+                                                          "AMR BADAWI",
+                                                          "HOPETON DUNN"
+                                                      ],
+                                         "session_type":  "main session: access",
+                                         "year":  2009,
+                                         "themes":  [
+                                                        "access dimensions",
+                                                        "WSIS/Tunis follow-up",
+                                                        "poverty reduction",
+                                                        "affordability and literacy"
+                                                    ],
+                                         "summary":  "Access session chaired by Egypt\u0027s telecom regulator head; moderator Dunn frames access as multidimensional: affordability, literacy, relevant content, institutional and political access, linguistic access and access for the disabled, rooted in the WSIS/Tunis commitments.",
+                                         "moderator":  "HOPETON DUNN",
+                                         "title":  "IGF 2009 Main Session on Access",
+                                         "venue":  "Sharm El Sheikh, Egypt"
+                                     },
+                 "doc_security_2007":  {
+                                           "rel_path":  "_invalid/other/IGF2-Security-14NOV07.txt.html",
+                                           "speakers":  [
+                                                            "YOSHINORI IMAI",
+                                                            "ANTONIO TAVARES"
+                                                        ],
+                                           "session_type":  "main session: security",
+                                           "year":  2007,
+                                           "themes":  [
+                                                          "online security",
+                                                          "cybercrime",
+                                                          "trust"
+                                                      ],
+                                           "summary":  "Security session: moderator Imai asks whether anyone feels safe online, framing the session as a war against cybercrime; chair Tavares describes security as a cat-and-mouse race where criminals stay one step ahead.",
+                                           "moderator":  "YOSHINORI IMAI",
+                                           "title":  "IGF 2007 Main Session on Security",
+                                           "venue":  "Rio de Janeiro, Brazil"
+                                       }
+             }
+}

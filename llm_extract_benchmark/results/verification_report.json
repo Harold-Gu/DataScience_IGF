@@ -1,0 +1,56 @@
+{
+ "grounding_qwen3.5:9b": {
+  "grounding_rate": 1.0,
+  "total_quotes": 5,
+  "failed": []
+ },
+ "grounding_qwen2.5:latest": {
+  "grounding_rate": 0.5,
+  "total_quotes": 6,
+  "failed": [
+   {
+    "field": "speakers",
+    "quote": ">>MARKUS KUMMER:   Good morning, ladies and gentlemen.  >>HELIO COSTA:   Good morning, ladies and gentlemen."
+   },
+   {
+    "field": "themes",
+    "quote": "What makes the IGF a different forum is the fact that here, the forum is open to all. ... differences still persist in a"
+   },
+   {
+    "field": "summary",
+    "quote": "What makes the IGF a different forum is the fact that here, the forum is open to all. ... differences still persist in a"
+   }
+  ]
+ },
+ "self_consistency_qwen3.5:9b": {
+  "runs": 3,
+  "speakers": 1.0,
+  "themes": 1.0,
+  "summary": 1.0
+ },
+ "self_consistency_qwen2.5:latest": {
+  "runs": 3,
+  "speakers": 0.0,
+  "themes": 0.5666666666666668,
+  "summary": 0.0
+ },
+ "negatives_qwen3.5:9b": {
+  "no_session_at_all": {
+   "label": "a text with no session information",
+   "nonempty_fields": [
+    "summary"
+   ],
+   "hallucination_count": 1
+  },
+  "trap_quantum": {
+   "label": "a session that never mentions quantum",
+   "nonempty_fields": [
+    "moderator",
+    "speakers",
+    "summary",
+    "title"
+   ],
+   "quantum_hallucinated": false
+  }
+ }
+}

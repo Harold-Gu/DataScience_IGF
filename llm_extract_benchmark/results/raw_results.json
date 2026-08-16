@@ -1,0 +1,903 @@
+[
+ {
+  "model": "qwen3.5:9b",
+  "method": "oneshot",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": "Access",
+   "year": 2007,
+   "venue": "Rio de Janeiro, Brazil",
+   "session_type": null,
+   "speakers": [
+    "MARKUS KUMMER",
+    "HELIO COSTA"
+   ],
+   "moderator": "MARKUS KUMMER",
+   "themes": [
+    "access",
+    "infrastructure",
+    "digital gap",
+    "regulation",
+    "competition"
+   ],
+   "summary": "Minister Helio Costa discusses the importance of internet access, infrastructure development, and fair competition to reduce digital gaps between developed and developing countries."
+  },
+  "stats": {
+   "prompt_eval_count": 1029,
+   "eval_count": 154,
+   "total_duration_ns": 20699753000
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.15384615384615385,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.6666666666666665,
+   "summary": 0.24561403508771928,
+   "grounding": null,
+   "score": 0.715,
+   "model": "qwen3.5:9b",
+   "method": "oneshot",
+   "doc": "doc_access_2007",
+   "latency": 20.7,
+   "eval_tokens": 154
+  }
+ },
+ {
+  "model": "qwen3:8b",
+  "method": "oneshot",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": "Internet Governance Forum Rio de Janeiro",
+   "year": 2007,
+   "venue": "Rio de Janeiro, Brazil",
+   "session_type": "main session",
+   "speakers": [
+    "MARKUS KUMMER",
+    "HELIO COSTA"
+   ],
+   "moderator": null,
+   "themes": [
+    "internet access",
+    "digital divide",
+    "infrastructure",
+    "regulation",
+    "global cooperation"
+   ],
+   "summary": "The session discusses internet access challenges, digital divide, and the role of infrastructure and regulation in promoting global cooperation and inclusion."
+  },
+  "stats": {
+   "prompt_eval_count": 1014,
+   "eval_count": 123,
+   "total_duration_ns": 29913984900
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.7142857142857143,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.6666666666666665,
+   "summary": 0.18181818181818182,
+   "grounding": null,
+   "score": 0.758,
+   "model": "qwen3:8b",
+   "method": "oneshot",
+   "doc": "doc_access_2007",
+   "latency": 29.9,
+   "eval_tokens": 123
+  }
+ },
+ {
+  "model": "qwen3.5:4b",
+  "method": "oneshot",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": null,
+   "year": 2007,
+   "venue": "Rio de Janeiro, Brazil",
+   "session_type": null,
+   "speakers": [
+    "MARKUS KUMMER",
+    "HELIO COSTA"
+   ],
+   "moderator": null,
+   "themes": [],
+   "summary": null
+  },
+  "stats": {
+   "prompt_eval_count": 1029,
+   "eval_count": 89,
+   "total_duration_ns": 26394952200
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.0,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.0,
+   "summary": 0.0,
+   "grounding": null,
+   "score": 0.55,
+   "model": "qwen3.5:4b",
+   "method": "oneshot",
+   "doc": "doc_access_2007",
+   "latency": 26.4,
+   "eval_tokens": 89
+  }
+ },
+ {
+  "model": "qwen3.6:latest",
+  "method": "oneshot",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": null,
+   "year": 2007,
+   "venue": "Rio de Janeiro, Brazil",
+   "session_type": null,
+   "speakers": [
+    "MARKUS KUMMER",
+    "HELIO COSTA"
+   ],
+   "moderator": null,
+   "themes": [],
+   "summary": "Minister Helio Costa delivers introductory remarks on the importance of Internet access, cooperation, and addressing digital inequalities at the 2nd IGF in Rio de Janeiro."
+  },
+  "stats": {
+   "prompt_eval_count": 1029,
+   "eval_count": 122,
+   "total_duration_ns": 107996659000
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.0,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.0,
+   "summary": 0.3050847457627119,
+   "grounding": null,
+   "score": 0.611,
+   "model": "qwen3.6:latest",
+   "method": "oneshot",
+   "doc": "doc_access_2007",
+   "latency": 108.0,
+   "eval_tokens": 122
+  }
+ },
+ {
+  "model": "qwen2.5:latest",
+  "method": "oneshot",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": null,
+   "year": 2007,
+   "venue": "Rio de Janeiro, Brazil",
+   "session_type": "main session",
+   "speakers": [
+    "MARKUS KUMMER",
+    "HELIO COSTA"
+   ],
+   "moderator": null,
+   "themes": [
+    "Internet governance",
+    "Digital divide",
+    "Access to information",
+    "Regulatory frameworks",
+    "Global cooperation"
+   ],
+   "summary": "Minister Helio Costa of Brazil introduces the IGF, emphasizing global cooperation and access issues."
+  },
+  "stats": {
+   "prompt_eval_count": 1006,
+   "eval_count": 114,
+   "total_duration_ns": 16522716700
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.0,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.4444444444444445,
+   "summary": 0.20833333333333334,
+   "grounding": null,
+   "score": 0.658,
+   "model": "qwen2.5:latest",
+   "method": "oneshot",
+   "doc": "doc_access_2007",
+   "latency": 16.5,
+   "eval_tokens": 114
+  }
+ },
+ {
+  "model": "qwen3.5:9b",
+  "method": "oneshot",
+  "doc": "doc_closing_2006",
+  "result": {
+   "title": "Closing Ceremony",
+   "year": 2006,
+   "venue": "Athens, Greece",
+   "session_type": "closing ceremony",
+   "speakers": [
+    "MINISTER LIAPIS",
+    "CHAIRMAN DESAI"
+   ],
+   "moderator": null,
+   "themes": [
+    "success",
+    "logistics",
+    "gratitude"
+   ],
+   "summary": "The closing ceremony of the inaugural IGF in Athens was declared a success by Minister Liapis and Chairman Desai, who thanked stakeholders for their participation."
+  },
+  "stats": {
+   "prompt_eval_count": 1133,
+   "eval_count": 143,
+   "total_duration_ns": 34745091900
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.43243243243243246,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.0,
+   "summary": 0.4067796610169492,
+   "grounding": null,
+   "score": 0.675,
+   "model": "qwen3.5:9b",
+   "method": "oneshot",
+   "doc": "doc_closing_2006",
+   "latency": 34.7,
+   "eval_tokens": 143
+  }
+ },
+ {
+  "model": "qwen3:8b",
+  "method": "oneshot",
+  "doc": "doc_closing_2006",
+  "result": {
+   "title": "Internet Governance Forum 2 November 2006 Closing Ceremony",
+   "year": 2,
+   "venue": "Athens, Greece",
+   "session_type": "closing ceremony",
+   "speakers": [
+    "MINISTER LIAPIS",
+    "CHAIRMAN DESAI"
+   ],
+   "moderator": null,
+   "themes": [
+    "internet governance",
+    "stakeholder engagement",
+    "logistical support",
+    "political commitment"
+   ],
+   "summary": "The closing ceremony of the IGF highlighted the success of the forum, thanking stakeholders, organizers, and the political commitment that made the event possible."
+  },
+  "stats": {
+   "prompt_eval_count": 1111,
+   "eval_count": 131,
+   "total_duration_ns": 22595345000
+  },
+  "metrics": {
+   "valid": true,
+   "year": 0.0,
+   "title": 1.0,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.28571428571428575,
+   "summary": 0.3103448275862069,
+   "grounding": null,
+   "score": 0.505,
+   "model": "qwen3:8b",
+   "method": "oneshot",
+   "doc": "doc_closing_2006",
+   "latency": 22.6,
+   "eval_tokens": 131
+  }
+ },
+ {
+  "model": "qwen3.5:4b",
+  "method": "oneshot",
+  "doc": "doc_closing_2006",
+  "result": {
+   "title": null,
+   "year": 2006,
+   "venue": "Athens",
+   "session_type": "Closing Ceremony",
+   "speakers": [
+    "MINISTER LIAPIS",
+    "CHAIRMAN DESAI"
+   ],
+   "moderator": null,
+   "themes": [],
+   "summary": "The closing ceremony of the IGF inaugural meeting in Athens concluded with thanks to stakeholders and logistical support staff."
+  },
+  "stats": {
+   "prompt_eval_count": 1133,
+   "eval_count": 110,
+   "total_duration_ns": 22303858000
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.0,
+   "venue": 0.6,
+   "speakers": 1.0,
+   "themes": 0.0,
+   "summary": 0.37735849056603776,
+   "grounding": null,
+   "score": 0.605,
+   "model": "qwen3.5:4b",
+   "method": "oneshot",
+   "doc": "doc_closing_2006",
+   "latency": 22.3,
+   "eval_tokens": 110
+  }
+ },
+ {
+  "model": "qwen3.6:latest",
+  "method": "oneshot",
+  "doc": "doc_closing_2006",
+  "result": {
+   "title": "Closing Ceremony",
+   "year": 2006,
+   "venue": "Athens, Greece",
+   "session_type": "closing ceremony",
+   "speakers": [
+    "MINISTER LIAPIS",
+    "CHAIRMAN DESAI"
+   ],
+   "moderator": null,
+   "themes": [
+    "Internet Governance Forum",
+    "Closing Ceremony",
+    "Athens",
+    "United Nations",
+    "Success"
+   ],
+   "summary": "Minister Liapis and Chairman Desai deliver closing remarks for the inaugural IGF in Athens, thanking stakeholders and organizers for the event's success."
+  },
+  "stats": {
+   "prompt_eval_count": 1133,
+   "eval_count": 155,
+   "total_duration_ns": 51049427700
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.43243243243243246,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.5,
+   "summary": 0.2807017543859649,
+   "grounding": null,
+   "score": 0.724,
+   "model": "qwen3.6:latest",
+   "method": "oneshot",
+   "doc": "doc_closing_2006",
+   "latency": 51.1,
+   "eval_tokens": 155
+  }
+ },
+ {
+  "model": "qwen2.5:latest",
+  "method": "oneshot",
+  "doc": "doc_closing_2006",
+  "result": {
+   "title": null,
+   "year": 2006,
+   "venue": "Athens",
+   "session_type": "closing ceremony",
+   "speakers": [
+    "MINISTER LIAPIS",
+    "CHAIRMAN DESAI"
+   ],
+   "moderator": null,
+   "themes": [],
+   "summary": "Closing ceremony of the Inaugural Meeting of IGF, acknowledging contributions and expressing gratitude."
+  },
+  "stats": {
+   "prompt_eval_count": 1103,
+   "eval_count": 90,
+   "total_duration_ns": 11958504700
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.0,
+   "venue": 0.6,
+   "speakers": 1.0,
+   "themes": 0.0,
+   "summary": 0.2978723404255319,
+   "grounding": null,
+   "score": 0.59,
+   "model": "qwen2.5:latest",
+   "method": "oneshot",
+   "doc": "doc_closing_2006",
+   "latency": 12.0,
+   "eval_tokens": 90
+  }
+ },
+ {
+  "model": "qwen3.5:9b",
+  "method": "fewshot",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": "Internet Governance Forum Rio de Janeiro, Brazil 13 November 2007 Access",
+   "year": 2007,
+   "venue": "Rio de Janeiro, Brazil",
+   "session_type": null,
+   "speakers": [
+    "MARKUS KUMMER",
+    "HELIO COSTA"
+   ],
+   "moderator": "MARKUS KUMMER",
+   "themes": [
+    "access",
+    "infrastructure",
+    "digital gap",
+    "regulation",
+    "competition"
+   ],
+   "summary": "Markus Kummer opens the session and Minister Helio Costa of Brazil discusses internet access, digital inequality, infrastructure development, and regulatory competition."
+  },
+  "stats": {
+   "prompt_eval_count": 1236,
+   "eval_count": 171,
+   "total_duration_ns": 22470036100
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 1.0,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.6666666666666665,
+   "summary": 0.4,
+   "grounding": null,
+   "score": 0.83,
+   "model": "qwen3.5:9b",
+   "method": "fewshot",
+   "doc": "doc_access_2007",
+   "latency": 22.5,
+   "eval_tokens": 171
+  }
+ },
+ {
+  "model": "qwen3.5:9b",
+  "method": "fieldqa",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": "Internet Governance Forum Rio de Janeiro, Brazil 13 November 2007 Access",
+   "year": 2007,
+   "venue": "Rio de Janeiro, Brazil",
+   "session_type": "main session",
+   "speakers": [
+    "MARKUS KUMMER",
+    "HELIO COSTA"
+   ],
+   "moderator": "MARKUS KUMMER",
+   "themes": [
+    "Internet access",
+    "Digital divide",
+    "Communications infrastructure",
+    "Global cooperation",
+    "Regulatory tools"
+   ],
+   "summary": "Brazilian Minister Helio Costa opened the IGF session by emphasizing that open cooperation and infrastructure development are essential to addressing global digital inequalities."
+  },
+  "stats": {
+   "eval_count": 160
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 1.0,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.6666666666666665,
+   "summary": 0.21052631578947367,
+   "grounding": null,
+   "score": 0.792,
+   "model": "qwen3.5:9b",
+   "method": "fieldqa",
+   "doc": "doc_access_2007",
+   "latency": 30.0,
+   "eval_tokens": 160
+  }
+ },
+ {
+  "model": "qwen3.5:9b",
+  "method": "tools",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": "Access",
+   "year": 2007,
+   "venue": "Rio de Janeiro, Brazil",
+   "session_type": null,
+   "speakers": [
+    "MARKUS KUMMER",
+    "HELIO COSTA"
+   ],
+   "moderator": "MARKUS KUMMER",
+   "themes": [],
+   "summary": "The session begins with Markus Kummer welcoming attendees and introducing Minister Helio Costa of Brazil. Minister Costa speaks in Portuguese, emphasizing the IGF's open nature where all participants are equal regardless of organization or nationality. He highlights the Internet as a substrate for global cooperation and collective intelligence, comparing it to a fireproof Library of Alexandria. Costa discusses ongoing digital divides between developed/developing countries and rich/poor populations regarding access to information (Internet, newspapers, radio, telephone). The session aims to discuss these inequalities and find solutions for infrastructure, legal, and regulatory bottlenecks that can include or exclude future citizens. He stresses the need for government stimulation of communication infrastructure, private sector innovation in telecommunications, fair competition, and efficient regulatory tools like net neutrality principles (duty to separate N) to ensure universal service provision."
+  },
+  "stats": {
+   "prompt_eval_count": 1261,
+   "eval_count": 259,
+   "total_duration_ns": 35583379200
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.15384615384615385,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.0,
+   "summary": 0.14201183431952663,
+   "grounding": null,
+   "score": 0.594,
+   "model": "qwen3.5:9b",
+   "method": "tools",
+   "doc": "doc_access_2007",
+   "latency": 35.6,
+   "eval_tokens": 259
+  }
+ },
+ {
+  "model": "qwen3.5:9b",
+  "method": "cited",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": {
+    "value": "Access",
+    "quote": "Internet Governance Forum Rio de Janeiro, Brazil 13 November 2007 Access"
+   },
+   "year": {
+    "value": 2007,
+    "quote": "13 November 2007"
+   },
+   "venue": {
+    "value": "Rio de Janeiro",
+    "quote": "Internet Governance Forum Rio de Janeiro,"
+   },
+   "session_type": {
+    "value": null,
+    "quote": null
+   },
+   "speakers": [
+    "MARKUS KUMMER",
+    "HELIO COSTA"
+   ],
+   "moderator": {
+    "value": "MARKUS KUMMER",
+    "quote": ">>MARKUS KUMMER: Good morning, ladies and gentlemen."
+   },
+   "themes": [
+    "access",
+    "infrastructure",
+    "digital gap"
+   ],
+   "summary": {
+    "value": "Minister Helio Costa of Brazil introduced the session on Internet access, highlighting inequalities in infrastructure between developed and developing countries.",
+    "quote": "We are here, therefore, to discuss these inequalities, to try and find solutions for the infrastructure, legal, and regulatory bottlenecks which have the power to include or exclude citizens of the future."
+   }
+  },
+  "stats": {
+   "prompt_eval_count": 1094,
+   "eval_count": 316,
+   "total_duration_ns": 42960767300
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.15384615384615385,
+   "venue": 0.7777777777777778,
+   "speakers": 1.0,
+   "themes": 0.8571428571428571,
+   "summary": 0.25925925925925924,
+   "grounding": null,
+   "score": 0.735,
+   "model": "qwen3.5:9b",
+   "method": "cited",
+   "doc": "doc_access_2007",
+   "latency": 43.0,
+   "eval_tokens": 316
+  }
+ },
+ {
+  "model": "qwen3.5:9b",
+  "method": "chunked",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": "Access",
+   "year": 2007,
+   "venue": "Rio de Janeiro, Brazil",
+   "moderator": "MARKUS KUMMER",
+   "speakers": [
+    "MARKUS KUMMER",
+    "HELIO COSTA"
+   ],
+   "themes": [
+    "access",
+    "democracy",
+    "digital gap",
+    "inequalities"
+   ],
+   "summary": "Minister Helio Costa of Brazil welcomes attendees, emphasizing the IGF's open nature and discussing global cooperation, collective intelligence, and persistent digital access gaps."
+  },
+  "stats": {
+   "eval_count": 224
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.15384615384615385,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.5,
+   "summary": 0.20689655172413793,
+   "grounding": null,
+   "score": 0.682,
+   "model": "qwen3.5:9b",
+   "method": "chunked",
+   "doc": "doc_access_2007",
+   "latency": 30.5,
+   "eval_tokens": 224
+  }
+ },
+ {
+  "model": "qwen2.5:latest",
+  "method": "fewshot",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": "2nd Meeting of the IGF",
+   "year": 2007,
+   "venue": "Rio de Janeiro, Brazil",
+   "session_type": null,
+   "speakers": [
+    "MARKUS KUMMER",
+    "HELIO COSTA"
+   ],
+   "moderator": null,
+   "themes": [
+    "access",
+    "digital gap",
+    "regulation",
+    "infrastructure"
+   ],
+   "summary": "Minister Helio Costa of Brazil discusses access, digital divide, and infrastructure at the IGF 2007 in Rio de Janeiro."
+  },
+  "stats": {
+   "prompt_eval_count": 1197,
+   "eval_count": 122,
+   "total_duration_ns": 10107834200
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.1702127659574468,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.75,
+   "summary": 0.3018867924528302,
+   "grounding": null,
+   "score": 0.74,
+   "model": "qwen2.5:latest",
+   "method": "fewshot",
+   "doc": "doc_access_2007",
+   "latency": 10.1,
+   "eval_tokens": 122
+  }
+ },
+ {
+  "model": "qwen2.5:latest",
+  "method": "fieldqa",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": "2nd Meeting of the IGF",
+   "year": 2007,
+   "venue": [
+    "Rio de Janeiro",
+    "Brazil"
+   ],
+   "session_type": "main session",
+   "speakers": [
+    "MARKUS_KUMMER",
+    "HELIO_COSTA"
+   ],
+   "moderator": null,
+   "themes": [
+    "Internet governance",
+    "democracy and balance",
+    "digital gap",
+    "access infrastructure",
+    "regulatory tools"
+   ],
+   "summary": "Minister Costa of Brazil introduces IGF Rio de Janeiro meeting, emphasizing global cooperation and access issues in the Internet."
+  },
+  "stats": {
+   "eval_count": 122
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.1702127659574468,
+   "venue": 0.88,
+   "speakers": 1.0,
+   "themes": 0.6666666666666665,
+   "summary": 0.3018867924528302,
+   "grounding": null,
+   "score": 0.721,
+   "model": "qwen2.5:latest",
+   "method": "fieldqa",
+   "doc": "doc_access_2007",
+   "latency": 8.6,
+   "eval_tokens": 122
+  }
+ },
+ {
+  "model": "qwen2.5:latest",
+  "method": "tools",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": "2nd Meeting of the IGF",
+   "year": 2007,
+   "venue": "Rio de Janeiro, Brazil",
+   "session_type": null,
+   "speakers": [
+    "MARKUS KUMMER",
+    "HELIO COSTA"
+   ],
+   "moderator": null,
+   "themes": [
+    "Internet governance",
+    "Digital divide",
+    "Access to the Internet",
+    "Regulatory frameworks",
+    "Telecommunications infrastructure"
+   ],
+   "summary": "The 2nd Meeting of the IGF in Rio de Janeiro, Brazil, started with an introductory speech by Minister Helio Costa. He emphasized the importance of cooperation and participation in the Internet universe, highlighting its role as a global platform for communication and collective intelligence. The minister discussed the digital divide between developed and developing countries, stressing the need for infrastructure development, fair competition, and efficient regulatory tools to ensure broader access to the Internet."
+  },
+  "stats": {
+   "prompt_eval_count": 1068,
+   "eval_count": 193,
+   "total_duration_ns": 6021612100
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.1702127659574468,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.888888888888889,
+   "summary": 0.25925925925925924,
+   "grounding": null,
+   "score": 0.752,
+   "model": "qwen2.5:latest",
+   "method": "tools",
+   "doc": "doc_access_2007",
+   "latency": 6.0,
+   "eval_tokens": 193
+  }
+ },
+ {
+  "model": "qwen2.5:latest",
+  "method": "cited",
+  "doc": "doc_access_2007",
+  "result": {
+   "title": {
+    "value": "2nd Meeting of the IGF",
+    "quote": "The 2nd Meeting of the IGF."
+   },
+   "year": {
+    "value": 2007,
+    "quote": "Brazil 13 November 2007"
+   },
+   "venue": {
+    "value": "Rio de Janeiro, Brazil",
+    "quote": "Rio de Janeiro, Brazil"
+   },
+   "session_type": {
+    "value": "Meeting",
+    "quote": null
+   },
+   "speakers": {
+    "value": [
+     "MARKUS KUMMER",
+     "HELIO COSTA"
+    ],
+    "quote": ">>MARKUS KUMMER:   Good morning, ladies and gentlemen.  >>HELIO COSTA:   Good morning, ladies and gentlemen."
+   },
+   "moderator": {
+    "value": null,
+    "quote": null
+   },
+   "themes": {
+    "value": [
+     "Internet governance",
+     "Digital divide",
+     "Access to information",
+     "Regulatory tools"
+    ],
+    "quote": "What makes the IGF a different forum is the fact that here, the forum is open to all. ... differences still persist in access to information between developed and developing countries and between the rich and the poor."
+   },
+   "summary": {
+    "value": "The minister discussed the importance of internet governance and highlighted the digital divide.",
+    "quote": "What makes the IGF a different forum is the fact that here, the forum is open to all. ... differences still persist in access to information between developed and developing countries and between the rich and the poor."
+   }
+  },
+  "stats": {
+   "prompt_eval_count": 1071,
+   "eval_count": 311,
+   "total_duration_ns": 11659840700
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.1702127659574468,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.5,
+   "summary": 0.2553191489361702,
+   "grounding": null,
+   "score": 0.693,
+   "model": "qwen2.5:latest",
+   "method": "cited",
+   "doc": "doc_access_2007",
+   "latency": 11.7,
+   "eval_tokens": 311
+  }
+ },
+ {
+  "model": "qwen2.5:latest",
+  "method": "chunked",
+  "doc": "doc_access_2007",
+  "result": {
+   "year": 2007,
+   "venue": "Rio de Janeiro, Brazil",
+   "session_type": "main session",
+   "speakers": [
+    "MARKUS KUMMER",
+    "HELIO COSTA"
+   ],
+   "themes": [
+    "Internet governance",
+    "Digital divide",
+    "Global cooperation",
+    "Collective intelligence",
+    "Democracy",
+    "access",
+    "inequalities",
+    "infrastructure",
+    "legal",
+    "regulatory"
+   ],
+   "summary": "Minister Helio Costa of Brazil introduces the IGF, emphasizing global cooperation and addressing digital divides. Discussion on access inequalities and solutions for infrastructure, legal, and regulatory bottlenecks in communication and information."
+  },
+  "stats": {
+   "eval_count": 207
+  },
+  "metrics": {
+   "valid": true,
+   "year": 1.0,
+   "title": 0.0,
+   "venue": 1.0,
+   "speakers": 1.0,
+   "themes": 0.4285714285714285,
+   "summary": 0.24615384615384617,
+   "grounding": null,
+   "score": 0.664,
+   "model": "qwen2.5:latest",
+   "method": "chunked",
+   "doc": "doc_access_2007",
+   "latency": 8.6,
+   "eval_tokens": 207
+  }
+ }
+]

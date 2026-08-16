@@ -1,0 +1,38 @@
+{
+  "window_chars": 4000,
+  "docs": {
+    "doc_access_2007": {
+      "rel_path": "_invalid/other/IGF2-Access-13NOV07.txt.html",
+      "title": "Internet Governance Forum Rio de Janeiro, Brazil 13 November 2007 Access",
+      "year": 2007,
+      "venue": "Rio de Janeiro, Brazil",
+      "session_type": "main session",
+      "speakers": ["MARKUS KUMMER", "HELIO COSTA"],
+      "moderator": "MARKUS KUMMER",
+      "themes": ["internet access", "infrastructure", "digital divide", "internet governance"],
+      "summary": "Opening of the IGF 2007 Access main session in Rio de Janeiro: Markus Kummer introduces the session and Brazilian communications minister Helio Costa makes introductory remarks on access, infrastructure costs and the digital divide."
+    },
+    "doc_closing_2006": {
+      "rel_path": "_invalid/other/IGF-Closing%20Ceremony.txt.html",
+      "title": "Internet Governance Forum 2 November 2006 Closing Ceremony",
+      "year": 2006,
+      "venue": "Athens, Greece",
+      "session_type": "closing ceremony",
+      "speakers": ["MINISTER LIAPIS", "CHAIRMAN DESAI"],
+      "moderator": "MINISTER LIAPIS",
+      "themes": ["multistakeholder participation", "Athens meeting review", "internet governance"],
+      "summary": "Closing ceremony of the inaugural IGF in Athens: Minister Liapis welcomes participants and thanks them, then special advisor to the UN Secretary-General Nitin Desai reviews the four days and thanks the organizing team."
+    },
+    "doc_consult_2007": {
+      "rel_path": "_invalid/other/13_February_Consult_2007.txt.html",
+      "title": "13 February 2007 IGF Consultations Geneva - Taking stock and the way forward",
+      "year": 2007,
+      "venue": "Geneva, Switzerland",
+      "session_type": "open consultation",
+      "speakers": ["CHAIRMAN DESAI", "SECRETARY KUMMER"],
+      "moderator": "CHAIRMAN DESAI",
+      "themes": ["taking stock", "Athens meeting assessment", "advisory group", "open consultations"],
+      "summary": "Open consultation in Geneva on taking stock of the Athens IGF and the way forward: Chairman Desai explains the purpose of the meeting, to assess the lessons from Athens and report them to the Secretary-General."
+    }
+  }
+}
