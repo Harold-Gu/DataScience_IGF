@@ -1,0 +1,9 @@
+﻿Keyword extraction vs gold labels (similarity-based evaluation)
+Gold docs: 15
+qwen2.5:latest     fewshot  n=15 phraseF1=0.298 tokenF1=0.429 softR=0.435 softP=0.370 exact=0.360 parse_fail=0
+qwen2.5:latest     oneshot  n=15 phraseF1=0.225 tokenF1=0.392 softR=0.401 softP=0.325 exact=0.293 parse_fail=0
+qwen3.5:9b         fewshot  n=15 phraseF1=0.313 tokenF1=0.471 softR=0.403 softP=0.454 exact=0.300 parse_fail=0
+qwen3.5:9b         oneshot  n=15 phraseF1=0.253 tokenF1=0.415 softR=0.388 softP=0.367 exact=0.260 parse_fail=0
+qwen3:8b           fewshot  n=15 phraseF1=0.074 tokenF1=0.099 softR=0.133 softP=0.078 exact=0.107 parse_fail=11
+qwen3:8b           oneshot  n=15 phraseF1=0.115 tokenF1=0.214 softR=0.249 softP=0.157 exact=0.173 parse_fail=6
+tf-baseline        tf       n=15 phraseF1=0.048 tokenF1=0.136 softR=0.053 softP=0.114 exact=0.053 parse_fail=0
