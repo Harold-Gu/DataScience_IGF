@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-"""Deep-dive analysis of the denoised IGF JSON corpus.
+"""Analysis of the denoised IGF JSON corpus.
 
-Produces, without pandas/matplotlib:
-  - type x year matrix            (CSV + HTML heatmap + console)
-  - yearly TF-IDF keywords        (sklearn, English stop words)
-  - topic-drift keyword series    (regex counters per 100k body chars)
-  - SDG distribution              (parsed from the "GOAL n" Drupal field)
-  - Drupal field coverage by type (report vs proposal fields)
-  - organization co-occurrence network (networkx, GEXF + CSV + console)
-  - external link domain stats
-  - body length stats per type
-  - duplicate detection via content_hash
+Outputs (no pandas/matplotlib): type x year matrix, yearly TF-IDF keywords,
+topic-drift keyword series, SDG distribution, Drupal field coverage,
+organisation co-occurrence network (networkx), external link stats, body
+length stats and duplicate detection.
 """
 
 import argparse

@@ -1,7 +1,6 @@
-"""Full-pipeline controller: scrape steps -> cleanup -> manifest ->
-classify -> extract.  This is the exact orchestration of the former
-single-file main(); every step function keeps its original behaviour,
-with optional debug filters (years= / limit=) that are no-ops when unset."""
+"""Scrape -> cleanup -> manifest -> classify -> extract.
+Port of the former single-file main(); the debug filters (years/limit)
+are no-ops when unset."""
 import os, time, json
 from datetime import datetime
 
@@ -14,7 +13,7 @@ from . import scraper as steps
 
 
 def run(args):
-    """Execute the legacy command line (args = argparse.Namespace)."""
+    """Run the pipeline with the parsed arguments."""
     if args.retry_failed:
         retry_dir = args.output or os.path.dirname(os.path.abspath(args.retry_failed))
         os.makedirs(retry_dir, exist_ok=True)
@@ -38,7 +37,7 @@ def run(args):
 
     do = set(args.step.split(",")) if args.step else set(STEPS)
     out = args.output or f"igf_full_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    print(f"\n{'#'*55}\n  IGF COMPLETE SCRAPER + CLASSIFIER + EXTRACTOR\n  Steps: {', '.join(sorted(do))}\n  Workers: {args.workers}\n  Year range: {YEAR_START}-{YEAR_END}\n  Output: {os.path.abspath(out)}\n{'#'*55}")
+    print(f"\n{'#'*55}\n  IGF full pipeline: scrape + classify + extract\n  Steps: {', '.join(sorted(do))}\n  Workers: {args.workers}\n  Year range: {YEAR_START}-{YEAR_END}\n  Output: {os.path.abspath(out)}\n{'#'*55}")
     if args.dry_run:
         print("\n[Dry run - no downloads]")
         return

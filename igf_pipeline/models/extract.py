@@ -1,5 +1,5 @@
-"""HTML to JSON extraction (Model): one JSON record per page built from the
-DOM tree (title, meta, headings, links, Drupal fields, full body text)."""
+"""HTML -> JSON: one record per page built from the DOM (title, meta, headings,
+links, Drupal fields, full body text)."""
 import os,re,json
 from datetime import datetime
 from pathlib import Path

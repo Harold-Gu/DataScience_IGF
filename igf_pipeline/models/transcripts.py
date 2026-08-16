@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-"""Recover the raw text of the old IGF verbatim transcripts.
+"""Recover raw text from the old IGF verbatim transcripts.
 
-The denoised corpus keeps ~55 records whose JSON body_text is empty even
-though real content exists on disk: the files are real-time captioning
-transcripts saved as .txt/.rtf with an .html suffix, which the HTML extractor
-could not parse.  This script:
-  - locates each file under the newest igf_classified_*/ directory,
-  - decodes plain text / raw RTF / minimal HTML,
-  - splits the captioning into speaker turns (">>NAME: text"),
-  - writes transcripts_recovered.json and a merged all_recovered.json
-    (the original corpus with body_text filled back in).
+Some records have empty body_text even though real content exists on disk:
+the files are captioning transcripts saved as .txt/.rtf with an .html suffix,
+which the HTML extractor could not parse. This script locates each file under
+the newest igf_classified_*/ directory, decodes plain text / raw RTF /
+minimal HTML, splits captioning into speaker turns (">>NAME: text") and
+writes transcripts_recovered.json plus a merged all_recovered.json.
 """
 
 import argparse

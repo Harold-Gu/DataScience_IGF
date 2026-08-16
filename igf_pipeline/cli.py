@@ -1,27 +1,12 @@
-"""argparse entry point (Controller).
+"""argparse entry point.
 
-Two usage styles, both fully supported:
-  1. Legacy flags, unchanged from the single-file era:
-       python scrape_igf.py --step sessions --year 2023 --workers 4
-       python scrape_igf.py --classify-only --classify-dir igf_full_xxx
-       python scrape_igf.py --retry-failed igf_full_xxx/failed_urls.tsv
-  2. Debug-friendly subcommands:
-       python main.py scrape   --years 2017-2019 --limit 20 --workers 3
-       python main.py classify --classify-dir igf_full_xxx
-       python main.py extract  --classify-dir igf_classified_xxx
-       python main.py validate --full igf_full_xxx
-       python main.py denoise | recover | analyze
-       python main.py probe --url https://intgovforum.org/en/content/igf-2023-workshops
-       python main.py selftest
-       python main.py llm-bench --models qwen3.5:9b --methods fewshot
+Legacy flags from the single-file era and debug subcommands are both
+supported:
 
-Debugging a single module therefore takes seconds/minutes instead of a
-multi-hour full crawl:
-  --years 2020-2020   crawl only one year
-  --limit 10          download at most 10 session pages
-  --dry-run           list the plan without any network I/O
-  selftest            offline, monkeypatched, ~10s
-  probe               single-URL fetch with status/length report
+    python scrape_igf.py --step sessions --year 2023
+    python main.py scrape --years 2017-2019 --limit 20 --workers 3
+    python main.py probe --url https://intgovforum.org/...
+    python main.py selftest
 """
 import argparse
 import os

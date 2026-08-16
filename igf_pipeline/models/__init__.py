@@ -1,2 +1,2 @@
-"""Model layer: data access and domain logic (no CLI, no rendering)."""
+"""Data access and domain logic (no CLI, no rendering)."""
 

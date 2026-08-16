@@ -1,5 +1,4 @@
-﻿"""Thread-safe mutable runtime state shared by all model modules.
-Kept in one place so the download engine can be tested in isolation."""
+"""Shared thread-safe runtime state for the pipeline modules."""
 import threading
 
 

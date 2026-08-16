@@ -9,7 +9,7 @@ Q = chr(34)
 HERE = os.path.dirname(os.path.abspath(__file__))
 OLLAMA = os.environ.get('OLLAMA_URL', 'http://127.0.0.1:11434')
 DEFAULT_GOLD = os.path.join(HERE, 'gold_keywords.json')
-DEFAULT_DOCS = r'C:\Users\guhao\PyCharmMiscProject\igf_classified_20260812_060303\_invalid\other'
+DEFAULT_DOCS = os.path.join(HERE, "sample_windows")
 OUT = os.path.join(HERE, 'results_kw', 'kw_raw_results.json')
 
 PROMPT_INTRO = (

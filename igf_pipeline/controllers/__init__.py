@@ -1,2 +1,2 @@
-"""Controller layer: orchestration and CLI dispatch."""
+"""Orchestration and CLI dispatch."""
 

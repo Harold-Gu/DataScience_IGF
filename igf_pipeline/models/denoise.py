@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Denoise the extracted IGF JSON corpus.
 
-Removes records that are clearly unrelated to the IGF (third-party sign-in
-pages, Flickr/YouTube shells, ad pages, tutorials, empty video pages) while
-keeping every record that carries any IGF / meeting signal.  Nothing is
-destroyed: removed records are written to removed.json with a reason and the
-evidence that triggered the removal.
+Removes records clearly unrelated to the IGF (third-party sign-in pages,
+Flickr/YouTube shells, ad pages) while keeping every record with any IGF /
+meeting signal. Removed records are written to removed.json with a reason
+and the triggering evidence.
 """
 
 import argparse

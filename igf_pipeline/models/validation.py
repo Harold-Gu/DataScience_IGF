@@ -1,6 +1,5 @@
-"""Validation model: scan crawl directories, flag bad pages,
-statistics per directory and JSON-level integrity checks (report_scrape
-logic).  Rendering lives in views/report_view.py."""
+"""Validation model: scans crawl directories, flags bad pages, per-directory
+statistics and JSON integrity checks. Rendering lives in views/report_view.py."""
 import os,re,json
 from collections import defaultdict, Counter
 from pathlib import Path

@@ -1,6 +1,5 @@
-"""Page classification and validation (Model): type rules by filename/content,
-HTML validity checks, content hashing, year extraction, dedup and the
-classified-directory writer."""
+"""Classification and validation: type rules by filename/content, HTML checks,
+content hashing, year extraction, dedup and the output writer."""
 import os,re,hashlib,shutil
 from datetime import datetime
 from collections import defaultdict

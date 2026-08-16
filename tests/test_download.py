@@ -1,6 +1,6 @@
-﻿# Offline self-tests for the igf_pipeline download and extraction modules.
+# Offline tests for the igf_pipeline download and extraction modules.
 # Run: python tests/test_download.py   (or: python main.py selftest)
-# Every network call is monkeypatched, so the suite is fully offline.
+# Network calls are monkeypatched, so the suite runs offline.
 import io
 import os
 import tempfile

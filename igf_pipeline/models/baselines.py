@@ -1,16 +1,14 @@
-﻿# -*- coding: utf-8 -*-
-"""Keyword-extraction baselines (Model layer).
+# -*- coding: utf-8 -*-
+"""Keyword-extraction baselines.
 
-Three classical baselines used to prove LLM superiority (or its absence):
+Three classical methods used as the non-LLM reference:
   * RAKE     Rose, Engel, Cramer & Cowley 2010 (DOI 10.1002/9780470689646.ch1)
   * TextRank Mihalcea & Tarau 2004 (ACL W04-3252)
-  * KeyBERT  Grootendorst 2021 (Zenodo 10.5281/zenodo.4461265, software)
+  * KeyBERT  Grootendorst 2021 (Zenodo 10.5281/zenodo.4461265)
 
-All three are implemented with the stdlib only so the pipeline runs anywhere.
-KeyBERT tries the optional `keybert` package first; if it is not installed it
-falls back to a built-in embedding-free approximation: TF-IDF vectors of
-candidate n-grams + cosine similarity + Maximal Marginal Relevance (MMR),
-which reproduces the KeyBERT ranking recipe without a transformer model.
+Stdlib only. KeyBERT uses the `keybert` package when installed, otherwise a
+built-in approximation: TF-IDF n-grams + cosine similarity + MMR, which
+reproduces the KeyBERT ranking without a transformer model.
 """
 import math
 import re

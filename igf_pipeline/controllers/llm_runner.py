@@ -1,12 +1,6 @@
-"""LLM experiment controller: dispatches the self-contained benchmark project
-(llm_extract_benchmark/) in a subprocess using the current interpreter.
-
-The experiment itself is a completed, reproducible sub-project: gold labels,
-gold keywords, results and EXPERIMENT_DESIGN.md stay under
-llm_extract_benchmark/.  This controller only gives it a stable CLI surface
-so model selection / keyword extraction can be re-run per model or method
-without re-running the whole matrix.
-"""
+"""LLM experiment controller: runs the llm_extract_benchmark/ sub-project
+in a subprocess. Gold labels, results and design docs live there; this only
+provides a stable CLI surface for re-running a model or method."""
 import os
 import subprocess
 import sys

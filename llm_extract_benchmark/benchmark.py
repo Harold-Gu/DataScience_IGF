@@ -23,10 +23,7 @@ from pathlib import Path
 from extractors import METHODS, run_rules
 
 
-try:
-    HERE = Path(__file__).parent
-except NameError:
-    HERE = Path(r'C:\Users\guhao\PyCharmMiscProject\llm_extract_benchmark')
+HERE = Path(__file__).resolve().parent
 DEFAULT_MODELS = ['qwen3.5:9b', 'qwen3:8b', 'qwen3.5:4b', 'qwen3.6:latest', 'qwen2.5:latest']
 DEFAULT_METHODS = ['rules', 'oneshot', 'fewshot', 'fieldqa', 'tools', 'cited', 'chunked']
 

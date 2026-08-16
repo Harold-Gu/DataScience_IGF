@@ -1,7 +1,6 @@
-﻿# -*- coding: utf-8 -*-
-"""Baseline evaluation controller: runs the four keyword baselines over the
-gold windows, scores them with the same five metrics used for LLM outputs,
-and writes a comparison report + per-doc JSON."""
+# -*- coding: utf-8 -*-
+"""Alternate baseline runner: keyword baselines over the gold windows, the
+same five metrics as the LLM outputs, comparison report + per-doc JSON."""
 import argparse
 import json
 import os

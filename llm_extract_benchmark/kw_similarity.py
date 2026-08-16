@@ -85,7 +85,7 @@ def extract_window(gold_entry, base_dir):
 def main():
     gold_path = sys.argv[1] if len(sys.argv) > 1 else "gold_keywords.json"
     results_path = sys.argv[2] if len(sys.argv) > 2 else "results_kw/kw_raw_results.json"
-    base_dir = sys.argv[3] if len(sys.argv) > 3 else r"C:\Users\guhao\PyCharmMiscProject\igf_classified_20260812_060303\_invalid\other"
+    base_dir = sys.argv[3] if len(sys.argv) > 3 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "sample_windows")
     out_dir = os.path.dirname(results_path) or "."
     gold = load_gold(gold_path)
     results = load_results(results_path)

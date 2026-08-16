@@ -1,7 +1,6 @@
-"""Breadth-first deep crawler (Model): worker-pool queue that expands list
-pages up to MAX_DEPTH, downloads linked documents and re-queues dropped URLs.
-Network hooks (_fetch / _get_tl_scraper) are called through the network module
-so tests can monkeypatch them."""
+"""Breadth-first deep crawler with a worker pool: expands list pages to
+MAX_DEPTH and downloads linked documents. Network hooks go through the
+network module so tests can monkeypatch them."""
 import os,re,time,hashlib,threading
 from queue import Queue
 from bs4 import BeautifulSoup

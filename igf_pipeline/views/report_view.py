@@ -1,5 +1,5 @@
-"""Validation report rendering (View layer): quality tables,
-directory breakdown and Drupal field analysis output."""
+"""Validation report rendering: quality tables, directory breakdown and
+Drupal field analysis."""
 
 
 SEP = "======================================================================"

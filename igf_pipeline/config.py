@@ -1,5 +1,5 @@
 """Global configuration: URL templates, session types, year range,
-classification rules and noise patterns (Model layer configuration)."""
+classification rules and noise patterns."""
 import re
 
 

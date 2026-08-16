@@ -42,7 +42,7 @@ def call_ollama(model, prompt, timeout=180):
 
 def main():
     gold_path = sys.argv[1] if len(sys.argv) > 1 else "gold_keywords.json"
-    base_dir = sys.argv[2] if len(sys.argv) > 2 else r"C:\Users\guhao\PyCharmMiscProject\igf_classified_20260812_060303\_invalid\other"
+    base_dir = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "sample_windows")
     out_dir = "results_kw"
     os.makedirs(out_dir, exist_ok=True)
     with open(gold_path, "r", encoding="utf-8-sig") as f:

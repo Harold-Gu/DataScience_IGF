@@ -1,6 +1,4 @@
-"""Console rendering helpers (View layer) used by the CLI entry point.
-The pipeline's progress prints live in the model/controller modules to keep
-behaviour byte-identical with the original single-file scraper."""
+"""Console helpers used by the CLI."""
 
 
 def section(title, width=55):

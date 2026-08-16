@@ -1,2 +1,2 @@
-"""View layer: console progress and report rendering."""
+"""Console progress and report rendering."""
 

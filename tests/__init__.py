@@ -1,2 +1,2 @@
-"""Offline test suite for the igf_pipeline package."""
+"""Tests for the igf_pipeline package."""
 

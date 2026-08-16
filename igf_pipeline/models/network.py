@@ -1,6 +1,5 @@
-﻿"""Network engine (Model): cloudscraper session, rate limiting with
-backoff/recovery, Wayback Machine fallback, atomic writes, binary magic
-validation, visited/inflight tracking and the multi-threaded downloader."""
+"""Download engine: cloudscraper session, rate limiting with backoff,
+Wayback fallback, atomic writes, binary checks and the threaded downloader."""
 import os,re,time,random,threading,hashlib
 from urllib.parse import urljoin,urlparse
 from concurrent.futures import ThreadPoolExecutor,as_completed
@@ -109,10 +108,10 @@ def _get_tl_scraper():
     if _GLOBAL_SCRAPER is None:
         with _GLOBAL_SCRAPER_LOCK:
             if _GLOBAL_SCRAPER is None:
-                print("  [INIT] Creating cloudscraper session (~30s)...",flush=True)
+                print("  Initialising session (first request can take ~30s)...",flush=True)
                 _GLOBAL_SCRAPER=cloudscraper.create_scraper(
                     browser={"browser":"chrome","platform":"windows","desktop":True})
-                print("  [INIT] Session ready.",flush=True)
+                print("  Session ready.",flush=True)
     return _GLOBAL_SCRAPER
 
 def _fetch(url,timeout=25,retries=5,wb_year=None):

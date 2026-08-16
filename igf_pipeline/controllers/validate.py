@@ -1,5 +1,4 @@
-"""Validation-report controller: orchestrates scan (model) + rendering (view).
-Equivalent to the former report_scrape.py main()."""
+"""Validation report: scan (model) + rendering (view); former report_scrape.py main()."""
 import os
 import time
 import argparse

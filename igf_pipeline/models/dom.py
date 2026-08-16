@@ -1,5 +1,4 @@
-"""DOM parsing (Model): navigation/footer noise removal, pagination link
-discovery and Drupal structured-field extraction."""
+"""DOM helpers: noise removal, pagination discovery and Drupal field extraction."""
 import re
 
 from ..config import _NOISE_RE

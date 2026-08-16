@@ -1,7 +1,5 @@
-"""Scrape step controllers: build the per-year task lists (sessions, reports,
-transcripts, schedules, archived, dashboard, participants), drive the download
-engine and retry failed URLs.  Debug-friendly: years= filters the range and
-limit= caps the number of session pages."""
+"""Scrape steps: sessions, reports, transcripts, schedules, archived,
+dashboard, participants, plus the failed-URL retry helper."""
 import os,re,time,random
 from pathlib import Path
 from bs4 import BeautifulSoup

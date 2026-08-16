@@ -22,10 +22,7 @@ from extractors import METHODS, ollama_chat, SYSTEM_PROMPT, FIELD_QUESTIONS
 from benchmark import normalize_name, set_f1, theme_f1, quote_in_text
 
 
-try:
-    HERE = Path(__file__).parent
-except NameError:
-    HERE = Path(r'C:\Users\guhao\PyCharmMiscProject\llm_extract_benchmark')
+HERE = Path(__file__).resolve().parent
 
 NEGATIVE_TESTS = {
     'no_session_at_all': (

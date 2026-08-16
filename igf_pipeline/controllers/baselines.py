@@ -1,18 +1,12 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Baseline evaluation controller.
 
-Reads a gold-keywords JSON, extracts the fixed annotation window from each
-source HTML, runs the three classical baselines (RAKE / TextRank / KeyBERT)
-from models.baselines, scores them with the same five lexical metrics used
-for the LLM experiments and writes:
+Reads the gold keywords, extracts the annotation window from each source
+HTML, runs RAKE / TextRank / KeyBERT and scores them with the same five
+lexical metrics used for the LLM experiments. Writes baseline_runs.json,
+baseline_metrics.csv and baseline_report.txt.
 
-  baseline_runs.json   runs-format JSON (model/method/doc/keywords) that can
-                       be merged into kw_raw_results.json for significance.py
-  baseline_metrics.csv per-document metric rows
-  baseline_report.txt  mean metrics per baseline
-
-Usage (one command):
-  python main.py baselines --gold gold_keywords.json --classified <igf_classified_dir> [--bench-out out_dir]
+    python main.py baselines --gold gold_keywords.json --classified <dir>
 """
 import csv
 import json
