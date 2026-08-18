@@ -9,6 +9,12 @@ cli.py        argparse entry point (legacy flags + debug subcommands)
 
 __version__ = "2.0.0"
 
+import os as _os, sys as _sys
+_SP = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), _os.pardir, ".venv", "Lib", "site-packages")
+_SP = _os.path.normpath(_SP)
+if _os.path.isdir(_SP) and _SP not in _sys.path:
+    _sys.path.append(_SP)
+
 # public API
 from .models import network, dom, deepcrawl, classify, extract
 from .models.classify import run_classify

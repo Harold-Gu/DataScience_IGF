@@ -1,14 +1,6 @@
 ﻿# -*- coding: utf-8 -*-
-"""Step 1: stratified sampling for the gold-standard expansion.
-
-Samples documents from a classified crawl (igf_classified_*/<type>/<year>/*.html)
-using fixed quotas across (meeting type x year-band) strata, preferring documents
-with enough body text. Output: sample.tsv + per-sample 4000-char windows.
-
-Usage:
-  python sample_stratified.py <classified_dir> [--target 48] [--seed 42] [--out sample.tsv]
-"""
-import argparse, json, os, random, re, sys
+"""Stratified sample of a classified crawl: sample.tsv + 4000-char windows."""
+import argparse, os, random, re, sys
 from html.parser import HTMLParser
 
 YEAR_BANDS = [(2006, 2009), (2010, 2014), (2015, 2019), (2020, 2022), (2023, 2025)]

@@ -14,7 +14,9 @@ def _strip_noise(soup):
         if getattr(el,"attrs",None)is None:continue
         cls=" ".join(el.get("class")or[])
         ident=str(el.get("id")or"")
-        if _NOISE_RE.search(cls)or _NOISE_RE.search(ident):el.decompose()
+        if not(_NOISE_RE.search(cls)or _NOISE_RE.search(ident)):continue
+        if el.select_one("[class*='field--name-field-']"):continue
+        el.decompose()
     return soup
 
 def _next_page_links(soup,base_url):
@@ -22,6 +24,13 @@ def _next_page_links(soup,base_url):
     for a in soup.find_all("a",href=True):
         href=a["href"].strip()
         if not href or href.startswith("#")or href.startswith("javascript:"):continue
+        href=network._unwrap_wb(href)
+        if href is None:continue
+        skip=False
+        for anc in a.parents:
+            if anc.name in("nav","header","footer","aside"):
+                skip=True;break
+        if skip:continue
         rel=" ".join(a.get("rel")or[])if isinstance(a.get("rel"),list)else str(a.get("rel")or"")
         title=str(a.get("title")or"")
         cls=" ".join(a.get("class")or[])if isinstance(a.get("class"),list)else str(a.get("class")or"")
@@ -45,6 +54,8 @@ def _extract_drupal_fields_json(soup):
         label=label_elem.get_text(strip=True)if label_elem else''
         label=re.sub(r'\s*\(.*?\)','',label).strip()
         items=elem.select('.field__item')
+        if not items and 'field__item' in (elem.get('class')or[]):
+            items=[elem]
         if not items:continue
         contents=[]
         for item in items:

@@ -24,6 +24,8 @@ COMMANDS = [
     "scrape", "classify", "extract", "validate", "denoise", "recover",
     "analyze", "retry", "selftest", "probe",
     "llm-bench", "llm-verify", "llm-kw", "llm-score", "baselines",
+    "gold-sample", "gold-annotate-a", "gold-annotate-b", "gold-kappa", "gold-stats",
+    "full-extract", "verify-extract", "downstream",
 ]
 
 
@@ -66,6 +68,9 @@ def build_parser():
     p.add_argument("--gold", default=None)
     p.add_argument("--bench-out", default=None)
     p.add_argument("--llm-extra", default="", help="comma-separated extra flags for llm-verify, e.g. --self-consistency,--negatives")
+    # gold standard / full extraction / analysis
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--window-dir", default="sample_windows")
     return p
 
 
@@ -215,6 +220,54 @@ def dispatch(args):
         return llm_runner.run_kw(args.models or "qwen3.5:9b", args.methods or "fewshot")
     if cmd == "llm-score":
         return llm_runner.run_score(args.gold, args.input, args.classified)
+    if cmd == "gold-sample":
+        from .controllers.gold_expand import main as gmain
+        v = ["sample", args.classify_dir or _latest("igf_classified_") or "", "--target", str(args.limit or 48),
+             "--seed", str(args.seed), "--out", args.output or "sample.tsv",
+             "--window-dir", args.window_dir]
+        return gmain(v)
+    if cmd == "gold-annotate-a":
+        from .controllers.gold_expand import main as gmain
+        v = ["annotate-a", args.input or "sample.tsv", "--classified", args.classify_dir or _latest("igf_classified_") or "",
+             "--window-dir", args.window_dir, "--out", args.output or "gold_annotator_A.json"]
+        return gmain(v)
+    if cmd == "gold-annotate-b":
+        from .controllers.gold_expand import main as gmain
+        v = ["annotate-b", args.input or "sample.tsv", "--classified", args.classify_dir or _latest("igf_classified_") or "",
+             "--window-dir", args.window_dir, "--out", args.output or "gold_annotator_B.json"]
+        return gmain(v)
+    if cmd == "gold-kappa":
+        from .controllers.gold_expand import main as gmain
+        v = ["kappa", args.input or "gold_annotator_A.json", args.gold or "gold_annotator_B.json"]
+        return gmain(v)
+    if cmd == "gold-stats":
+        from .controllers.gold_expand import main as gmain
+        return gmain(["stats", args.classify_dir or _latest("igf_classified_") or ""])
+    if cmd == "full-extract":
+        from .controllers.full_extract import main as fmain
+        out = args.output or "igf_llm_extract_%s" % __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
+        v = ["--classified", args.classify_dir or _latest("igf_classified_") or "",
+             "--out", out, "--model", args.models or "qwen3.5:9b", "--workers", str(args.workers)]
+        if args.limit:
+            v += ["--limit", str(args.limit)]
+        return fmain(v)
+    if cmd == "verify-extract":
+        from .controllers.verify_extract import main as vmain2
+        out = args.output or "igf_verify_%s" % __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
+        v = ["--extraction", args.input or "", "--classified", args.classify_dir or _latest("igf_classified_") or "",
+             "--out", out]
+        if args.gold:
+            v += ["--gold", args.gold]
+        return vmain2(v)
+    if cmd == "downstream":
+        from .controllers.downstream import main as dmain2
+        out = args.output or "igf_analysis_%s" % __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
+        v = ["--out", out]
+        if args.input:
+            v += ["--extraction", args.input]
+        if args.extracted:
+            v += ["--json", args.extracted]
+        return dmain2(v)
     if cmd == "baselines":
         from .controllers.baselines import run_baselines
         gold = args.gold

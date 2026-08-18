@@ -1,15 +1,6 @@
-# -*- coding: utf-8 -*-
-"""Keyword-extraction baselines.
-
-Three classical methods used as the non-LLM reference:
-  * RAKE     Rose, Engel, Cramer & Cowley 2010 (DOI 10.1002/9780470689646.ch1)
-  * TextRank Mihalcea & Tarau 2004 (ACL W04-3252)
-  * KeyBERT  Grootendorst 2021 (Zenodo 10.5281/zenodo.4461265)
-
-Stdlib only. KeyBERT uses the `keybert` package when installed, otherwise a
-built-in approximation: TF-IDF n-grams + cosine similarity + MMR, which
-reproduces the KeyBERT ranking without a transformer model.
-"""
+"""Keyword baselines: RAKE (Rose et al. 2010), TextRank (Mihalcea & Tarau
+2004) and KeyBERT (Grootendorst 2021), with a TF-IDF fallback when the
+keybert package is missing."""
 import math
 import re
 
@@ -49,7 +40,7 @@ def _is_stop_phrase(ws):
 
 
 def _score_keywords(gold_kws, pred_kws):
-    """Five lexical similarity metrics (SemEval-2017 Task 10 style, S17-2091)."""
+    """Five lexical similarity metrics (SemEval-2017 Task 10 style)."""
     def norm(x):
         return re.sub(r"\s+", " ", re.sub(r"[^A-Za-z0-9' -]", " ", str(x).lower())).strip(" -'")
 

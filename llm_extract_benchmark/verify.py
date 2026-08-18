@@ -1,25 +1,14 @@
 #!/usr/bin/env python3
-"""Black-box verification of LLM extraction outputs.
-
-Four independent checks (none of them trusts the model):
-  1. grounding     - every cited quote must appear in the source transcript
-  2. self-consistency - same model+prompt at temperature 0.7, 3 runs; low
-                       agreement between runs flags instability
-  3. cross-model   - agreement between different models on the same document;
-                       fields where models disagree are flagged for human review
-  4. negative tests - documents that contain no session info; a good extractor
-                       must output null/empty instead of hallucinating
-"""
+"""Black-box checks: grounding, self-consistency, cross-model, negative tests."""
 
 import argparse
 import json
 import re
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 from extractors import METHODS, ollama_chat, SYSTEM_PROMPT, FIELD_QUESTIONS
-from benchmark import normalize_name, set_f1, theme_f1, quote_in_text
+from benchmark import set_f1, theme_f1, quote_in_text
 
 
 HERE = Path(__file__).resolve().parent
@@ -154,9 +143,14 @@ def main(argv=None):
 
     gold_data = json.load(open(HERE / 'gold_labels.json', encoding='utf-8'))
     window = gold_data['window_chars']
-    recovered = json.load(open(
-        sorted(Path.cwd().glob('igf_recovered_*/transcripts_recovered.json'),
-               key=lambda p: p.stat().st_mtime, reverse=True)[0], encoding='utf-8'))
+    recovered_paths = sorted(
+        Path.cwd().glob('igf_recovered_*/transcripts_recovered.json'),
+        key=lambda p: p.stat().st_mtime, reverse=True)
+    if not recovered_paths:
+        print('no igf_recovered_*/transcripts_recovered.json found in %s' % Path.cwd())
+        print('run the transcript recovery step first')
+        return 2
+    recovered = json.load(open(recovered_paths[0], encoding='utf-8'))
     by_rel = {item['rel_path']: item for item in recovered}
     doc = gold_data['docs'][args.doc]
     text = by_rel[doc['rel_path']]['text'][:window]

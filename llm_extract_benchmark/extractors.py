@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
-"""Extraction methods + Ollama client + scoring for the IGF transcript benchmark.
-
-Methods (the 'how many ways' question):
-  rules      - deterministic regex baseline (control / floor)
-  oneshot    - one prompt, whole JSON, Ollama format=json, temperature 0
-  fewshot    - oneshot + one in-context worked example
-  fieldqa    - decompose into one question per field, merge answers
-  tools      - function calling with a strict JSON schema
-  cited      - oneshot but every field must quote the source verbatim
-  chunked    - split the window into overlapping chunks, merge with voting
-"""
+"""Extraction methods and Ollama client for the transcript benchmark."""
 
 import json
 import re
@@ -96,7 +86,6 @@ def user_prompt(transcript, schema=SCHEMA_JSON):
 
 
 def _parse_json_content(message):
-    """Pull JSON out of an Ollama message (plain or tool call)."""
     tool_calls = message.get('tool_calls') or []
     if tool_calls:
         arguments = tool_calls[0].get('function', {}).get('arguments') or ''

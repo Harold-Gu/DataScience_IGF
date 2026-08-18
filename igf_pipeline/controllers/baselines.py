@@ -1,13 +1,4 @@
-# -*- coding: utf-8 -*-
-"""Baseline evaluation controller.
-
-Reads the gold keywords, extracts the annotation window from each source
-HTML, runs RAKE / TextRank / KeyBERT and scores them with the same five
-lexical metrics used for the LLM experiments. Writes baseline_runs.json,
-baseline_metrics.csv and baseline_report.txt.
-
-    python main.py baselines --gold gold_keywords.json --classified <dir>
-"""
+"""RAKE / TextRank / KeyBERT baselines scored against gold keywords."""
 import csv
 import json
 import os

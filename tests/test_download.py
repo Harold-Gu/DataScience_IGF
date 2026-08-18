@@ -2,8 +2,13 @@
 # Run: python tests/test_download.py   (or: python main.py selftest)
 # Network calls are monkeypatched, so the suite runs offline.
 import io
+import json
 import os
+import shutil
 import tempfile
+import socket
+import threading
+import time
 import unittest
 from contextlib import redirect_stdout
 
@@ -88,9 +93,13 @@ class DownloadPipelineTest(unittest.TestCase):
         network._rate_state['cooldown_until'] = 0.0
         network._wb_state['fails'] = 0
         network._wb_state['disabled'] = False
+        network._LIVE_STATE[0] = 0.0
+        network._WB_NEXT[0] = 0.0
         self.saved_fetch = network._fetch
         self.saved_wb = network._wb_get
         self.saved_scraper = network._get_tl_scraper
+        self.saved_live_ok = network._live_ok
+        network._live_ok = lambda url, timeout=5: True
 
     def tearDown(self):
         for name, value in self.saved.items():
@@ -98,6 +107,7 @@ class DownloadPipelineTest(unittest.TestCase):
         network._fetch = self.saved_fetch
         network._wb_get = self.saved_wb
         network._get_tl_scraper = self.saved_scraper
+        network._live_ok = self.saved_live_ok
         self.tmp.cleanup()
 
     def ok_url(self):
@@ -322,6 +332,87 @@ class DownloadPipelineTest(unittest.TestCase):
         with open(path, 'rb') as f:
             self.assertTrue(f.read().startswith(b'%PDF-'))
 
+    def test_wayback_tarpit_circuit_breaker(self):
+        network._wb_state['stalls'] = 0
+        network._wb_state['disabled_until'] = 0.0
+        saved_deadline = network._urllib_deadline
+        saved_bounded = network._bounded_scraper_get
+        saved_time = network.time.time
+        saved_sleep = network.time.sleep
+        fake_t = [1000.0]
+        calls = [0]
+
+        def fake_time():
+            fake_t[0] += 50.0
+            return fake_t[0]
+
+        def fake_deadline(url, timeout=45):
+            calls[0] += 1
+            return None
+
+        network._urllib_deadline = fake_deadline
+        network._bounded_scraper_get = lambda scraper, url, timeout=15: (None, TimeoutError('x'))
+        network.time.time = fake_time
+        network.time.sleep = lambda s: None
+        try:
+            for _ in range(3):
+                self.assertIsNone(network._wb_get('http://web.archive.org/web/2020/http://x/', timeout=20))
+            self.assertEqual(calls[0], 3)
+            self.assertGreater(network._wb_state['disabled_until'], fake_t[0])
+            self.assertIsNone(network._wb_get('http://web.archive.org/web/2020/http://x/', timeout=20))
+            self.assertEqual(calls[0], 3)
+        finally:
+            network._urllib_deadline = saved_deadline
+            network._bounded_scraper_get = saved_bounded
+            network.time.time = saved_time
+            network.time.sleep = saved_sleep
+            network._wb_state['disabled_until'] = 0.0
+            network._wb_state['stalls'] = 0
+
+    def test_urllib_deadline_kills_trickle(self):
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(('127.0.0.1', 0))
+        srv.listen(1)
+        port = srv.getsockname()[1]
+        state = {'sent': 0, 'closed': False}
+
+        def serve():
+            conn = None
+            try:
+                conn, _ = srv.accept()
+                conn.settimeout(10)
+                conn.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 10000\r\n\r\n')
+                body = b'x' * 10000
+                while state['sent'] < len(body):
+                    conn.send(body[state['sent']:state['sent'] + 1])
+                    state['sent'] += 1
+                    time.sleep(0.3)
+            except Exception:
+                state['closed'] = True
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                try:
+                    srv.close()
+                except Exception:
+                    pass
+
+        th = threading.Thread(target=serve, daemon=True)
+        th.start()
+        t0 = time.time()
+        r = network._urllib_deadline('http://127.0.0.1:%d/' % port, timeout=2)
+        elapsed = time.time() - t0
+        self.assertIsNone(r)
+        self.assertGreaterEqual(elapsed, 20)
+        self.assertLess(elapsed, 35)
+        deadline_end = time.time() + 5
+        while time.time() < deadline_end and not state['closed']:
+            time.sleep(0.2)
+        self.assertTrue(state['closed'], 'trickle connection was not force-closed')
+        self.assertLess(state['sent'], 200)
+
     def test_batch_success_rate_printed(self):
         network._get_tl_scraper = lambda: self.ok_scraper()
         path = os.path.join(self.root, '01_sessions', 'igf-2020-workshop-test.html')
@@ -372,6 +463,55 @@ class DownloadPipelineTest(unittest.TestCase):
         soup = BeautifulSoup(html, 'html.parser')
         dom._strip_noise(soup)
         self.assertIsNotNone(soup.select_one('.field--name-field-theme'))
+
+    def test_strip_noise_keeps_drupal_field_in_tabs_wrapper(self):
+        html = ('<html><body><div class=' + Q + 'block block-system block-system-main-block' + Q + '>'
+                '<div class=' + Q + 'group-information field-group-htabs field-group-tabs-wrapper' + Q + '>'
+                '<div class=' + Q + 'field field--name-field-theme' + Q + '>'
+                '<div class=' + Q + 'field__item' + Q + '>Cybersecurity</div></div>'
+                '</div></div></body></html>')
+        soup = BeautifulSoup(html, 'html.parser')
+        dom._strip_noise(soup)
+        self.assertIsNotNone(soup.select_one('.field--name-field-theme'))
+        self.assertIsNotNone(soup.select_one('.field-group-tabs-wrapper'))
+
+    def test_strip_noise_still_removes_fieldless_noise(self):
+        html = ('<html><body><div class=' + Q + 'tabs primary' + Q + '>admin</div>'
+                '<div class=' + Q + 'block block-language' + Q + '>lang</div>'
+                '<main><p>keep</p></main></body></html>')
+        soup = BeautifulSoup(html, 'html.parser')
+        dom._strip_noise(soup)
+        self.assertIsNone(soup.select_one('.tabs'))
+        self.assertIsNone(soup.select_one('.block-language'))
+        self.assertIsNotNone(soup.find('main'))
+
+    def test_gold_annotate_b_template_matches_schema(self):
+        from igf_pipeline.controllers import gold_expand
+        tmp = tempfile.mkdtemp()
+        try:
+            with open(os.path.join(tmp, 'sample.tsv'), 'w', encoding='utf-8') as f:
+                f.write('doc\tfile\tyear\tvenue\tsession_type\trel_path\twindow_chars\n')
+                f.write('doc_workshop_2019_01\tpage.html\t2019\t\tworkshop\tworkshop/2019/page.html\t50\n')
+            os.makedirs(os.path.join(tmp, 'sample_windows'))
+            with open(os.path.join(tmp, 'sample_windows', 'doc_workshop_2019_01.txt'), 'w', encoding='utf-8') as f:
+                f.write('window text about cybersecurity governance')
+            cls = os.path.join(tmp, 'cls')
+            os.makedirs(os.path.join(cls, 'workshop', '2019'))
+            with open(os.path.join(cls, 'workshop', '2019', 'page.html'), 'w', encoding='utf-8') as f:
+                f.write('<html><head><title>IGF 2019 WS</title></head><body><p>content</p></body></html>')
+            out = os.path.join(tmp, 'B.json')
+            rc = gold_expand.main(['annotate-b', os.path.join(tmp, 'sample.tsv'),
+                                   '--classified', cls, '--window-dir',
+                                   os.path.join(tmp, 'sample_windows'), '--out', out])
+            self.assertEqual(rc, 0)
+            docs = json.load(open(out, encoding='utf-8'))
+            self.assertEqual(len(docs), 1)
+            self.assertEqual(docs[0]['keywords'], [])
+            self.assertEqual(docs[0]['fields']['title'], 'IGF 2019 WS')
+            self.assertEqual(docs[0]['session_type'], 'workshop')
+            self.assertEqual(docs[0]['year'], 2019)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_extract_drupal_fields_theme(self):
         html = ('<div class=' + Q + 'field field--name-field-theme' + Q + '>'
@@ -434,7 +574,7 @@ class DownloadPipelineTest(unittest.TestCase):
             seed: _FakeTextResp(HTML_NEXT),
             p2: _FakeTextResp('<html><body><main><p>' + LONG * 3 + '</p></main></body></html>'),
         }
-        network._fetch = lambda url, wb_year=None: pages.get(url)
+        network._fetch_deep = lambda url, year=None, timeout=60, state=None: pages.get(url)
         out_dir = os.path.join(self.root, '05_archived', '2020')
         deepcrawl._deep_crawl_parallel(seed, out_dir, workers=2)
         self.assertTrue(os.path.exists(os.path.join(out_dir, 'igf-2020.html')))
@@ -447,5 +587,3 @@ class DownloadPipelineTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
-
-

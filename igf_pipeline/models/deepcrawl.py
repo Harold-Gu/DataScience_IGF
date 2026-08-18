@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 from ..config import MAX_DEPTH,MAX_QUEUE,WORKERS
 from .network import (_mark_visited,_unmark_visited,_clean,_is_igf_domain,_make_url,
     _is_file,_file_ok,_download_one,_record_failed,_atomic_write_text,
-    _atomic_write_bytes,_add_stat,_norm_url)
+    _atomic_write_bytes,_add_stat,_norm_url,_fetch_deep)
 from . import network,dom
 
 
@@ -30,6 +30,11 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
     def _worker():
         scraper=network._get_tl_scraper()
         while True:
+            with network._wb_lock:
+                until=network._wb_state.get("disabled_until",0.0)
+            if until>time.time() and network._LIVE_STATE[0]>time.time() and task_queue.qsize()>0:
+                time.sleep(30)
+                continue
             try:item=task_queue.get(timeout=2)
             except:item=None
             if item is None:
@@ -43,8 +48,29 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                     continue
                 name=url.split("/")[-1].split("?")[0]or f"page_{hashlib.sha1(url.encode()).hexdigest()[:8]}"
                 page_path=os.path.join(current_dir,f"{_clean(name)}.html")
-                r=network._fetch(url,wb_year=seed_year)
-                if r is None:
+                cached=None
+                if os.path.exists(page_path)and os.path.getsize(page_path)>=300:
+                    try:
+                        with open(page_path,"r",encoding="utf-8",errors="ignore")as cf:cached=cf.read()
+                        if len(cached)<300:cached=None
+                    except:cached=None
+                r=None
+                if cached is None:
+                    if depth==0 and _norm_url(url)==_norm_url(seed_url):
+                        for attempt in range(3):
+                            if network._LIVE_STATE[0]<=time.time():
+                                live_r,_=network._bounded_scraper_get(scraper,url,timeout=15)
+                                if live_r is not None and live_r.status_code==200 and len(getattr(live_r,"content",b""))>=300:
+                                    r=live_r;break
+                            r=network._fetch_deep(url,year=seed_year,state=network._LIVE_STATE)
+                            if r is not None:break
+                            with network._wb_lock:
+                                until=network._wb_state.get("disabled_until",0.0)
+                            if until>time.time():time.sleep(min(300.0,until-time.time()))
+                            else:time.sleep(45*(attempt+1))
+                    else:
+                        r=network._fetch_deep(url,year=seed_year,state=network._LIVE_STATE)
+                if cached is None and r is None:
                     _unmark_visited(url,current_dir)
                     with stats_lock:local_stats["errors"]+=1
                     _record_failed(url,page_path,"fetch")
@@ -54,7 +80,7 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                             with open(err_path,"w",encoding="utf-8")as ef:ef.write(f"Failed to fetch seed URL: {url}\nCheck if URL exists.\n")
                         except:pass
                     continue
-                html=r.text
+                html=cached if cached is not None else r.text
                 is_dashboard_spa=("IGF Schedule" in html[:5000] and "Calendar view" in html[:8000])
                 spa_marker=os.path.join(current_dir,"_SPA_SHELL.txt")
                 if is_dashboard_spa and not os.path.exists(spa_marker):
@@ -72,25 +98,42 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                     href=a["href"].strip()
                     if not href or href.startswith("#")or href.startswith("javascript:"):continue
                     if"mailto:"in href:continue
+                    skip=False
+                    for anc in a.parents:
+                        if anc.name in("nav","header","footer","aside"):
+                            skip=True;break
+                    if skip:continue
+                    href=network._unwrap_wb(href)
+                    if href is None:continue
                     full=_make_url(href,url)
                     if _is_file(full):
+                        if not _is_igf_domain(full):
+                            url_low=full.lower()
+                            if not ((seed_year and seed_year in url_low)or any(kw in url_low for kw in["igf","intgov","internet-governance","wsis"])):
+                                continue
                         fname=_clean(full.split("/")[-1].split("?")[0])
                         fpath=os.path.join(files_dir,fname)
                         if _file_ok(full,fpath):
                             with stats_lock:local_stats["files"]+=1
-                        elif _download_one(scraper,full,fpath)=="ok":
+                        elif _download_one(scraper,full,fpath,prefer_wb=(network._LIVE_STATE[0]>time.time()))=="ok":
                             with stats_lock:local_stats["files"]+=1
                     elif _is_igf_domain(full):
+                        am=re.search(r"/en/(?:archived|dashboard)/([^/?#]*)",full)
+                        if am and am.group(1):
+                            ym=re.search(r"(20\d{2})",am.group(1))
+                            if ym and ym.group(1)!=seed_year:continue
                         if depth<MAX_DEPTH:
                             if task_queue.qsize()<MAX_QUEUE:task_queue.put((full,depth+1,current_dir))
                             else:_log_dropped(full)
                     elif depth<MAX_DEPTH:
                         url_low=full.lower()
                         relevant=(seed_year and seed_year in url_low)or any(kw in url_low for kw in["igf","intgov","internet-governance","wsis"])
-                        if depth==0 or relevant:
+                        if relevant:
                             if task_queue.qsize()<MAX_QUEUE:task_queue.put((full,depth+1,current_dir))
                             else:_log_dropped(full)
                 for nxt in dom._next_page_links(soup,url):
+                    nxt=network._unwrap_wb(nxt)
+                    if nxt is None:continue
                     if task_queue.qsize()<MAX_QUEUE:task_queue.put((nxt,depth,current_dir))
                     else:_log_dropped(nxt)
             except Exception:
@@ -117,7 +160,7 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
                 if sig!=last_sig:
                     print(f"    [busy] {s['pages']}p {s['files']}f {s['errors']}e",flush=True)
                 else:
-                    print(f"    [busy] no progress: {s['pages']}p {s['files']}f {s['errors']}e (inflight={unfinished})",flush=True)
+                    print(f"    [busy] no progress: {s['pages']}p {s['files']}f {s['errors']}e (queue={qsize} pending={unfinished})",flush=True)
                 last_beat=now;last_sig=sig
             if unfinished==0:
                 idle_count+=1
@@ -126,6 +169,7 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
         running[0]=False
         for t in threads:t.join(timeout=30)
     dropped_seen=set()
+    requeued_last=False
     for _pass in range(3):
         _crawl_pass(task_queue)
         try:
@@ -136,9 +180,14 @@ def _deep_crawl_parallel(seed_url,out_dir,workers=WORKERS):
         for u in drops:
             if u in dropped_seen:continue
             dropped_seen.add(u);new.append(u)
-        if not new:break
+        if not new:
+            requeued_last=False;break
         print(f"    [pass {_pass+2}] re-queuing {len(new)} dropped links")
         for u in new:task_queue.put((u,1,out_dir))
+        requeued_last=True
+    if requeued_last and task_queue.qsize()>0:
+        print("    [pass final] draining re-queued links")
+        _crawl_pass(task_queue)
     with stats_lock:s=dict(local_stats)
     print(f"    DONE: {s['pages']} pages, {s['files']} files, {s['errors']} errors")
     _add_stat("pages",s["pages"])

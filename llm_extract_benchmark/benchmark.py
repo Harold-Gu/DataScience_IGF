@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""Run models x methods over the gold transcript set and score them.
-
-Scoring is field-level against hand-checked gold labels:
-  - year: exact match
-  - title/venue: fuzzy string ratio (difflib)
-  - speakers/themes: set-level F1 after name normalization
-  - summary: ROUGE-L (longest common subsequence) against the gold sentence
-  - grounding: share of cited quotes that actually appear in the source text
-  - latency + tokens reported per call
-"""
+"""Models x methods over the gold transcript set, scored per field."""
 
 import argparse
 import csv
@@ -16,7 +7,6 @@ import difflib
 import json
 import re
 import sys
-import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -173,9 +163,14 @@ def main(argv=None):
 
     gold_data = json.load(open(args.gold, encoding='utf-8'))
     window = gold_data['window_chars']
-    recovered = json.load(open(
-        sorted(Path.cwd().glob('igf_recovered_*/transcripts_recovered.json'),
-               key=lambda p: p.stat().st_mtime, reverse=True)[0], encoding='utf-8'))
+    recovered_paths = sorted(
+        Path.cwd().glob('igf_recovered_*/transcripts_recovered.json'),
+        key=lambda p: p.stat().st_mtime, reverse=True)
+    if not recovered_paths:
+        print('no igf_recovered_*/transcripts_recovered.json found in %s' % Path.cwd())
+        print('run the transcript recovery step first')
+        return 2
+    recovered = json.load(open(recovered_paths[0], encoding='utf-8'))
     by_rel = {item['rel_path']: item for item in recovered}
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)

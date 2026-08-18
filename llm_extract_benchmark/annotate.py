@@ -1,28 +1,5 @@
 ﻿# -*- coding: utf-8 -*-
-"""Step 2: gold-standard annotation assistant.
-
-  annotate.py init <sample.tsv> [--window-dir sample_windows] [--out gold_draft.json]
-      -> creates one gold record per sample with empty fields + keywords slots;
-         window text is attached for evidence checking.
-
-  annotate.py check <gold.json>
-      -> validates every record:
-           * 8-10 keywords, each with evidence
-           * every evidence string actually appears in the window (normalised)
-           * required fields (title, session_type, year) non-empty
-
-  annotate.py kappa <gold_a.json> <gold_b.json>
-      -> Cohen's kappa over keyword items (Carletta 1996 usage): the union of
-         normalised keyword strings across annotators forms the item set; per
-         document each annotator votes 1/0; kappa is computed per-document and
-         pooled (average Po/Pe, unweighted). Pure stdlib, no sklearn needed.
-
-JSON record shape (mirrors the existing gold_keywords.json):
-  {"doc": "doc_workshop_2023_01", "file": "x.html", "year": 2023,
-   "venue": "", "session_type": "workshop", "window_chars": 4000,
-   "fields": {"title":"","speakers":[],"moderator":null,"themes":[],"summary":""},
-   "keywords": [{"kw": "digital inclusion", "evidence": "..."}]}
-"""
+"""Gold annotation assistant: init / check / kappa."""
 import argparse, json, os, re, sys
 
 

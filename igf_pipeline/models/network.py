@@ -1,6 +1,8 @@
 """Download engine: cloudscraper session, rate limiting with backoff,
 Wayback fallback, atomic writes, binary checks and the threaded downloader."""
-import os,re,time,random,threading,hashlib
+import os,re,sys,time,random,threading,hashlib,socket
+import urllib.request,urllib.error
+import http.client as _http_client
 from urllib.parse import urljoin,urlparse
 from concurrent.futures import ThreadPoolExecutor,as_completed
 import cloudscraper
@@ -35,6 +37,117 @@ def _rate_recover():
         if _rate_state["streak"]>=8:
             _rate_state["gap"]=max(_RATE_MIN,_rate_state["gap"]*0.9)
 
+_UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+_LIVE_STATE=[0.0]
+_LIVE_LOCK=threading.Lock()
+_WB_RATE_LOCK=threading.Lock()
+_WB_NEXT=[0.0]
+_WB_SEM=threading.BoundedSemaphore(1)
+_SOCK_MAP={}
+_SOCK_LOCK=threading.Lock()
+
+
+def _quiet_unraisable(err):
+    try:
+        if isinstance(getattr(err,"exc_value",None),ValueError)and"closed file"in str(err.exc_value):
+            f=getattr(err,"traceback",None)
+            while f is not None:
+                if "http/client.py"in f.tb_frame.f_code.co_filename.replace("\\","/"):return
+                f=f.tb_next
+    except Exception:
+        pass
+    sys.__unraisablehook__(err)
+
+sys.unraisablehook=_quiet_unraisable
+
+
+def _patch_http_connect():
+    """Record raw sockets created by urllib per calling thread so a hung
+    request can be force-closed without touching other workers' sockets
+    (trickling tarpits defeat per-recv timeouts)."""
+    if getattr(_http_client.HTTPConnection,"_igf_tracked",False):return
+    for _cls in(_http_client.HTTPConnection,_http_client.HTTPSConnection):
+        _orig=_cls.connect
+        def _tracked(self,_orig=_orig):
+            _orig(self)
+            try:
+                if getattr(self,"sock",None)is not None:
+                    tid=threading.get_ident()
+                    with _SOCK_LOCK:_SOCK_MAP.setdefault(tid,set()).add(self.sock)
+            except Exception:
+                pass
+        _cls.connect=_tracked
+    _http_client.HTTPConnection._igf_tracked=True
+
+
+def _kill_socks(tid):
+    with _SOCK_LOCK:socks=list(_SOCK_MAP.pop(tid,set()))
+    for s in socks:
+        try:s.shutdown(socket.SHUT_RDWR)
+        except Exception:pass
+        try:s.close()
+        except Exception:pass
+
+
+def _urllib_deadline(url,timeout=45):
+    """urllib GET with a hard wall-clock deadline: the request runs in a
+    daemon thread and only that thread's sockets are force-closed when the
+    deadline passes, so a trickling tarpit can never block a worker for more
+    than timeout+20s (shutdown unblocks recv reliably on Windows)."""
+    _patch_http_connect()
+    box={}
+    tid=[None]
+    def _go():
+        tid[0]=threading.get_ident()
+        try:
+            req=urllib.request.Request(url,headers={"User-Agent":_UA,"Accept":"*/*"})
+            with urllib.request.urlopen(req,timeout=timeout)as resp:
+                box["r"]=_Resp(resp.read(),resp.getcode())
+        except Exception as e:
+            box["e"]=e
+    t=threading.Thread(target=_go,daemon=True)
+    t.start()
+    t.join(max(3,int(timeout))+20)
+    if t.is_alive():
+        _kill_socks(tid[0])
+        t.join(5)
+        return None
+    _kill_socks(tid[0])
+    r=box.get("r")
+    if r is not None and r.status_code==200 and len(r.content)>=300:return r
+    return None
+def _bounded_scraper_get(scraper,url,timeout=15):
+    """Run scraper.get in a daemon thread with a hard join deadline so a
+    trickling tarpit can never block a worker forever."""
+    box={}
+    def _go():
+        try:
+            box["r"]=scraper.get(url,timeout=timeout)
+        except Exception as e:
+            box["e"]=e
+    t=threading.Thread(target=_go,daemon=True)
+    t.start()
+    t.join(timeout+20)
+    if t.is_alive():return None,TimeoutError("scraper hung")
+    return box.get("r"),box.get("e")
+
+class _Resp:
+    def __init__(self,data,status=200):
+        self.content=data;self.status_code=status;self._text=None
+    @property
+    def text(self):
+        if self._text is None:self._text=self.content.decode("utf-8","replace")
+        return self._text
+
+def _wb_rate_wait():
+    with _WB_RATE_LOCK:
+        extra=min(3.8,_wb_state.get("fails",0)*0.5)
+        gap=1.2+extra+random.uniform(0,0.15)
+        now=time.time()
+        wait=max(0.0,_WB_NEXT[0]-now)
+        _WB_NEXT[0]=max(now,_WB_NEXT[0])+gap
+    if wait>0:time.sleep(wait)
+
 def _norm_url(url):
     try:
         p=urlparse(url)
@@ -42,6 +155,22 @@ def _norm_url(url):
         path=p.path.rstrip("/")or"/"
         return f"{p.scheme}://{netloc}{path}"
     except:return url
+
+_WB_LINK_RE=re.compile(r"^(?:https?://web\.archive\.org)?/web/(\d{4,14})\*?[a-z_]*/(.+)$",re.I)
+
+def _unwrap_wb(href):
+    href=str(href).strip()
+    low=href.lower()
+    m=_WB_LINK_RE.match(href)
+    if m:
+        target=m.group(2)
+        tlow=target.lower()
+        if tlow.startswith("//"):return"https:"+target
+        if target.startswith("http")and"web.archive.org"not in tlow:return target
+        return None
+    if low.startswith("/web/"):return None
+    if"web.archive.org"in low or"archive.org"in low:return None
+    return href
 
 def _scope_key(fpath):
     try:
@@ -119,7 +248,8 @@ def _fetch(url,timeout=25,retries=5,wb_year=None):
     for attempt in range(retries):
         _rate_wait()
         try:
-            r=_get_tl_scraper().get(url,timeout=timeout)
+            r,err=_bounded_scraper_get(_get_tl_scraper(),url,timeout=timeout)
+            if r is None:raise err
             code=r.status_code
             if code==404:
                 if _fetch_err[1]==0:_fetch_err[0]="404";_fetch_err[1]=1
@@ -168,24 +298,50 @@ def _year_from_text(txt):
     m=re.search(r"(20\d{2})",str(txt))
     return m.group(1)if m else None
 
-def _wb_get(url,timeout=20,scraper=None):
+def _wb_get(url,timeout=30,scraper=None):
     with _wb_lock:
-        if _wb_state["disabled"]:return None
-    _rate_wait()
-    try:
-        r=(scraper or _get_tl_scraper()).get(url,timeout=timeout)
-        if r.status_code==200 and len(r.text)>=300:
-            with _wb_lock:_wb_state["fails"]=0
+        if _wb_state.get("disabled_until",0.0)>time.time():return None
+    _wb_rate_wait()
+    with _WB_SEM:
+        budget=max(15,min(25,int(timeout)))+10
+        t0=time.time()
+        r=_urllib_deadline(url,budget)
+        if r is not None:
+            with _wb_lock:
+                _wb_state["fails"]=0
+                _wb_state["stalls"]=0
+                _wb_state["disables"]=0
+                _wb_state["disabled"]=False
+                _wb_state.pop("disabled_until",None)
             return r
-        return None
-    except Exception:
+        if time.time()-t0>=budget-2:
+            with _wb_lock:
+                _wb_state["stalls"]=_wb_state.get("stalls",0)+1
+                if _wb_state["stalls"]>=3:
+                    _wb_state["disables"]=_wb_state.get("disables",0)+1
+                    pause=min(1800.0,600.0*(2**max(0,_wb_state["disables"]-1)))
+                    _wb_state["disabled_until"]=time.time()+pause
+                    _wb_state["stalls"]=0
+                    print(f"  [WB] archive.org trickling (tarpit): Wayback paused {int(pause)}s",flush=True)
+            return None
+    r,_=_bounded_scraper_get((scraper or _get_tl_scraper()),url,timeout=max(20,int(timeout)))
+    if r is not None and getattr(r,"status_code",0)==200 and len(getattr(r,"content",b""))>=300:
         with _wb_lock:
-            _wb_state["fails"]+=1
-            if _wb_state["fails"]>=5 and not _wb_state["disabled"]:
-                _wb_state["disabled"]=True
-                print("  [WB] web.archive.org unreachable, Wayback fallback disabled for this run",flush=True)
-        return None
-
+            _wb_state["fails"]=0
+            _wb_state["stalls"]=0
+            _wb_state["disables"]=0
+            _wb_state["disabled"]=False
+            _wb_state.pop("disabled_until",None)
+        return r
+    with _wb_lock:
+        _wb_state["fails"]=_wb_state.get("fails",0)+1
+        if _wb_state["fails"]>=40:
+            _wb_state["disables"]=_wb_state.get("disables",0)+1
+            pause=min(1800.0,300.0*(2**max(0,_wb_state["disables"]-1)))
+            _wb_state["disabled_until"]=time.time()+pause
+            _wb_state["fails"]=0
+            print(f"  [WB] archive.org unreachable, pausing Wayback for {int(pause)}s",flush=True)
+    return None
 def _fetch_wb(url,year=None):
     ts=str(year)if year else"2020"
     r=_wb_get(f"https://web.archive.org/web/{ts}/"+url)
@@ -193,6 +349,33 @@ def _fetch_wb(url,year=None):
     if ts!="2020":return _wb_get(f"https://web.archive.org/web/"+url)
     return None
 
+def _live_get(url,timeout=10):
+    return _urllib_deadline(url,max(10,int(timeout))+5)
+
+def _live_ok(url,timeout=5):
+    return _urllib_deadline(url,max(6,int(timeout)))is not None
+
+def _fetch_deep(url,year=None,timeout=10,state=None):
+    st=state if state is not None else _LIVE_STATE
+    now=time.time()
+    if st[0]<=now:
+        if st[0]==0.0:
+            r=_live_get(url,timeout)
+            if r is not None:return r
+            if _LIVE_LOCK.acquire(blocking=False):
+                try:st[0]=max(now+240.0,_wb_state.get("disabled_until",0.0))
+                finally:_LIVE_LOCK.release()
+        elif _LIVE_LOCK.acquire(blocking=False):
+            try:
+                r=_live_get(url,timeout)
+                if r is not None:
+                    st[0]=0.0
+                    return r
+                st[0]=max(now+240.0,_wb_state.get("disabled_until",0.0))
+            finally:
+                _LIVE_LOCK.release()
+    if _wb_state.get("disabled_until",0.0)>time.time():return None
+    return _fetch_wb(url,year)or _fetch_wb(url,None)
 def _clean(s):
     return re.sub(r'[\\/*?:"<>|]',"",str(s)).replace("\n"," ").strip()
 
@@ -243,6 +426,7 @@ def _atomic_write_text(path,text):
 
 def _bin_valid(url,head,size):
     low=url.lower().split("?")[0]
+    if head[:1]in(b"<",b"{")or head.lstrip()[:5].lower()==b"<html":return False
     if low.endswith(".bin"):return size>=100
     for ext,magic in _BIN_MAGIC.items():
         if low.endswith(ext):return head.startswith(magic)
@@ -278,7 +462,23 @@ def _file_ok(url,fpath):
         except:return False
     return size>=300
 
-def _download_one(scraper,url,fpath,max_retries=3):
+def _wb_download(url,fpath,is_bin,scraper,key):
+    wb_year=_year_from_text(fpath)or"2020"
+    for cand in(f"https://web.archive.org/web/{wb_year}/"+url,f"https://web.archive.org/web/"+url):
+        with _wb_lock:
+            if _wb_state.get("disabled_until",0.0)>time.time():return None
+        wbr=_wb_get(cand,scraper=scraper)
+        if wbr is None:continue
+        wdata=wbr.content
+        if is_bin:
+            if not _bin_valid(url,wdata[:8],len(wdata)):continue
+        elif len(wdata)<300:continue
+        _atomic_write_bytes(fpath,wdata)
+        _fix_bin_ext(fpath,wdata)
+        with _visited_lock:_visited_urls.add(key)
+        return"ok"
+    return None
+def _download_one(scraper,url,fpath,max_retries=3,prefer_wb=None):
     sc=_scope_key(fpath)
     key=(_norm_url(url),sc)
     with _visited_lock:
@@ -295,10 +495,18 @@ def _download_one(scraper,url,fpath,max_retries=3):
     is_bin=_is_file(url)
     reason="unknown"
     try:
+        if prefer_wb is None:prefer_wb=(_LIVE_STATE[0]>time.time())
+        if not prefer_wb and not _live_ok(url,timeout=5):
+            prefer_wb=True
+        if prefer_wb:
+            if _wb_download(url,fpath,is_bin,scraper,key)=="ok":return"ok"
+            _record_failed(url,fpath,"wb_miss")
+            return"fail"
         for attempt in range(max_retries):
             _rate_wait()
             try:
-                r=scraper.get(url,timeout=30)
+                r,err=_bounded_scraper_get(scraper,url,timeout=15)
+                if r is None:raise err
                 code=r.status_code
                 if code==404:
                     reason="HTTP 404";break
@@ -312,7 +520,7 @@ def _download_one(scraper,url,fpath,max_retries=3):
                     break
                 if code in(502,503,504):
                     _rate_backoff(cooldown=10);reason=f"HTTP {code}"
-                    time.sleep(min(2**(attempt+1),8)+random.uniform(0.5,1.5));continue
+                    break
                 r.raise_for_status()
                 data=r.content
                 if is_bin:
@@ -338,19 +546,10 @@ def _download_one(scraper,url,fpath,max_retries=3):
                     break
                 if attempt<max_retries-1:time.sleep(2**(attempt+1)+random.uniform(0.5,2));continue
         perm=reason.startswith("HTTP 4")and not reason.endswith("429")
-        if perm or reason in("bad_magic","short","HTTPError"):
-            wb_year=_year_from_text(fpath)or"2020"
-            for cand in(f"https://web.archive.org/web/{wb_year}/"+url,f"https://web.archive.org/web/"+url):
-                wbr=_wb_get(cand,scraper=scraper)
-                if wbr is None:continue
-                wdata=wbr.content
-                if is_bin:
-                    if not _bin_valid(url,wdata[:8],len(wdata)):continue
-                elif len(wdata)<300:continue
-                _atomic_write_bytes(fpath,wdata)
-                _fix_bin_ext(fpath,wdata)
-                with _visited_lock:_visited_urls.add(key)
-                return"ok"
+        wb_reasons=("bad_magic","short","HTTPError","ReadTimeout","ConnectTimeout",
+            "ConnectionError","ProxyError","SSLError","ChunkedEncodingError","TooManyRedirects")
+        if perm or reason in wb_reasons or reason.startswith("HTTP 5"):
+            if _wb_download(url,fpath,is_bin,scraper,key)=="ok":return"ok"
         _record_failed(url,fpath,reason)
         return"fail"
     finally:
@@ -371,10 +570,10 @@ def _download_batch(tasks,workers):
                 results[(u,fp)]=r;_add_stat(r)
                 now=time.time()
                 if i%200==0 or i==len(futs):
-                    print(f"      [{label}] {i}/{len(futs)}");_print_stat();last_beat=now;last_i=i
+                    print(f"      [{label}] {i}/{len(futs)}",flush=True);_print_stat();last_beat=now;last_i=i
                 elif now-last_beat>=60:
                     rpm=(i-last_i)*60.0/max(1.0,now-last_beat)
-                    print(f"      [{label}] {i}/{len(futs)} ({rpm:.1f} pages/min)");_print_stat();last_beat=now;last_i=i
+                    print(f"      [{label}] {i}/{len(futs)} ({rpm:.1f} pages/min)",flush=True);_print_stat();last_beat=now;last_i=i
         return results
     results=_run(tasks,"p1")
     ok=sum(1 for r in results.values()if r=="ok")
@@ -393,8 +592,3 @@ def _download_batch(tasks,workers):
         total_ok=ok+ok2
         rate2=(total_ok*100.0/(total_ok+fail2))if(total_ok+fail2)else 100.0
         print(f"      after retry: ok={total_ok} fail={fail2} success={rate2:.1f}%")
-
-
-
-
-

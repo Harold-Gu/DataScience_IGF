@@ -1,23 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Step 3: paired bootstrap significance tests (Berg-Kirkpatrick et al. 2012).
-
-Compares per-document metric distributions between systems (LLM model x method
-and the TF baseline) using paired resampling over documents: B draws with
-replacement, mean-delta distribution, two-sided p-value, 95% CI, win rate.
-
-Usage:
-  python significance.py <raw_results.json> [--gold gold_keywords.json]
-         [--metric phrase_f1] [--B 10000] [--seed 1] [--out significance_report.txt]
-
-The raw_results.json must be the one written by run_kw_exp.py (runs list with
-model/method/doc/keywords); gold entries supply the per-doc gold keywords and,
-for the TF baseline, the window text via base_dir + file + window_chars.
-"""
+"""Paired bootstrap significance between systems (Berg-Kirkpatrick et al. 2012)."""
 import argparse, json, os, random, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from kw_similarity import (score_keywords, load_gold, tf_baseline,
-                           extract_window, normalize)
+from kw_similarity import (score_keywords, load_gold, tf_baseline, extract_window)
 
 METRICS = ["phrase_f1", "token_f1", "soft_recall", "soft_precision", "exact_hit_rate"]
 
