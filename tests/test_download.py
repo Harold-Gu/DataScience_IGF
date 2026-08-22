@@ -13,7 +13,9 @@ import unittest
 from contextlib import redirect_stdout
 
 try:
-    from igf_pipeline.models import network, dom, classify, extract, deepcrawl
+    from igf_pipeline import crawl, process
+    network = dom = deepcrawl = crawl
+    classify = extract = process
     from bs4 import BeautifulSoup
     HAS_S = True
 except Exception:
@@ -486,7 +488,7 @@ class DownloadPipelineTest(unittest.TestCase):
         self.assertIsNotNone(soup.find('main'))
 
     def test_gold_annotate_b_template_matches_schema(self):
-        from igf_pipeline.controllers import gold_expand
+        from igf_pipeline import llm as gold_expand
         tmp = tempfile.mkdtemp()
         try:
             with open(os.path.join(tmp, 'sample.tsv'), 'w', encoding='utf-8') as f:

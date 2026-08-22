@@ -1,6 +1,4 @@
-"""Compatibility shim -> igf_pipeline.models.denoise.main()."""
-from igf_pipeline.models.denoise import main
+from igf_pipeline.process import denoise_main
 
 if __name__ == "__main__":
-    main()
-
+    denoise_main()

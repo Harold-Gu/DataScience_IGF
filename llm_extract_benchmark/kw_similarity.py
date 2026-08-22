@@ -1,7 +1,29 @@
 import json, os, re, csv, sys
 from collections import Counter
 
-STOPWORDS = set("""the a an and or but of to in on for with as at by is are was were be been this that these those it its from we you they he she i not no so if then than into over under out up down who whom which what when where why how can could may might must shall should will would do does did have has had about above after again against all also am an any because before below between both during each few further here him his her hers more most much myself nor once only other own same some such than too very just s t d m re ve ll don isn aren wasn weren doesn didn""".split())
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_STOPWORDS_PATH = os.path.join(_HERE, "..", "igf_pipeline", "models", "english_stopwords.txt")
+
+
+def _load_stopwords():
+    try:
+        from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+        return set(ENGLISH_STOP_WORDS)
+    except Exception:
+        pass
+    try:
+        with open(_STOPWORDS_PATH, encoding="utf-8") as fh:
+            words = {line.strip().lower() for line in fh if line.strip()}
+        if words:
+            return words
+    except OSError:
+        pass
+    return set("the a an and or but of to in on for with as at by is are was "
+               "were be been this that these those it its from we you they he "
+               "she i not no so".split())
+
+
+STOPWORDS = _load_stopwords()
 
 def normalize(kw):
     kw = re.sub(r"[^A-Za-z0-9' -]", " ", str(kw).lower())

@@ -1,6 +1,4 @@
-"""Compatibility shim -> igf_pipeline.models.analysis.main()."""
-from igf_pipeline.models.analysis import main
+from igf_pipeline.analyze import analysis_main
 
 if __name__ == "__main__":
-    main()
-
+    analysis_main()

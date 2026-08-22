@@ -1,34 +1,37 @@
-"""IGF data pipeline, organised as MVC.
-
-models/       download engine, DOM parsing, classification, extraction,
-              validation, denoising, transcript recovery
-views/        console and validation-report rendering
-controllers/  scrape steps, pipeline, validation, LLM experiments
-cli.py        argparse entry point (legacy flags + debug subcommands)
-"""
+import os as _os
+import sys as _sys
 
 __version__ = "2.0.0"
 
-import os as _os, sys as _sys
-_SP = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), _os.pardir, ".venv", "Lib", "site-packages")
-_SP = _os.path.normpath(_SP)
-if _os.path.isdir(_SP) and _SP not in _sys.path:
-    _sys.path.append(_SP)
+# add a local .venv site-packages when present (dev convenience, skipped otherwise)
+_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _site in (_os.path.join(_root, ".venv", "Lib", "site-packages"),
+              _os.path.join(_root, ".venv", "lib",
+                            "python%d.%d" % _sys.version_info[:2], "site-packages")):
+    if _os.path.isdir(_site) and _site not in _sys.path:
+        _sys.path.append(_site)
 
-# public API
-from .models import network, dom, deepcrawl, classify, extract
-from .models.classify import run_classify
-from .models.extract import run_extract
-
-# controller API
-from .controllers.scraper import (
-    step_sessions,
-    step_reports,
-    step_transcripts,
-    step_schedules,
-    step_archived_dashboard,
-    step_participants,
+from . import crawl, pipeline, process
+from .process import run_classify, run_extract
+from .pipeline import (
     _discover_reports,
     _retry_failed_file,
+    step_archived_dashboard,
+    step_participants,
+    step_reports,
+    step_schedules,
+    step_sessions,
+    step_transcripts,
 )
 
+# module aliases kept for the pre-merge public API
+network = dom = deepcrawl = crawl
+classify = extract = process
+
+__all__ = [
+    "crawl", "pipeline", "process", "network", "dom", "deepcrawl",
+    "classify", "extract", "run_classify", "run_extract",
+    "_discover_reports", "_retry_failed_file",
+    "step_archived_dashboard", "step_participants", "step_reports",
+    "step_schedules", "step_sessions", "step_transcripts",
+]

@@ -1,6 +1,4 @@
-"""Compatibility shim -> igf_pipeline.controllers.validate.main()."""
-from igf_pipeline.controllers.validate import main
+from igf_pipeline.process import run_validation_report
 
 if __name__ == "__main__":
-    main()
-
+    run_validation_report()
