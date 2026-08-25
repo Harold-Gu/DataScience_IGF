@@ -67,21 +67,54 @@ PARTICIPANTS = {
     2025: "https://indico.un.org/event/1016806/registrations/participants",
 }
 
-TYPE_PATTERNS = {
-    "workshop": [r"igf-\d{4}-ws-\d+", r"igf-\d{4}-workshop-"],
-    "open-forum": [r"igf-\d{4}-open-forum-", r"igf-\d{4}-of-\d+"],
-    "lightning-talk": [r"igf-\d{4}-lightning-talk"],
-    "day-0-event": [r"igf-\d{4}-day-0-event", r"igf-\d{4}-pre-event"],
-    "launch-award": [r"igf-\d{4}-launch-award", r"igf-\d{4}-launches-awards"],
-    "networking": [r"igf-\d{4}-networking"],
-    "main-session": [r"igf-\d{4}-main-session", r"high-level-track", r"opening-ceremony", r"closing-ceremony", r"parliamentary-track", r"open-mic"],
-    "town-hall": [r"igf-\d{4}-town-hall"],
-    "report": [r"igf-\d{4}-report", r"session-report", r"report", r"final-report"],
-    "transcript": [r"transcript", r"igf-\d{4}-transcript"],
-    "schedule": [r"igf-\d{4}-schedule", r"schedule"],
-}
+# Filename classification runs in two passes. Pass 1 contains session-id and
+# unambiguous tokens, ordered so an explicit session id wins over a topic word
+# (e.g. "town-hall-32-...-open-forum" is a town hall, "of-23-...-awards" is an
+# open forum, "ws407-book-launch-..." is a workshop). Pass 2 contains generic
+# words and is consulted only when pass 1 produced no match.
+TYPE_P1 = [
+    ("transcript", [r"transcript", r"verbatim"]),
+    ("schedule", [r"workshopschedule", r"schedule"]),
+    ("open-forum", [r"open-forum[-_#\s]{0,2}\d+",
+                    r"(?:^|[^a-z0-9])of-?(?!\d{4})0*[1-9]\d{0,2}(?=[^0-9]|$)"]),
+    ("workshop", [r"igf-\d{4}-ws-?\d+", r"(?:^|[^a-z])ws-?\d+",
+                  r"igf-\d{4}-workshops?", r"workshop[-_\s]?\d+"]),
+    ("lightning-talk", [r"lightning"]),
+    ("launch-award", [r"launch-award[-_\s]?event[-_\s]?\d+",
+                      r"launch-award[-_\s]?\d+", r"launches-awards"]),
+    ("day-0-event", [r"day-0[-_\s\u2013]{0,4}event[-_\s#]?\d+",
+                     r"pre-event[-_\s]?\d+"]),
+    ("town-hall", [r"town-?hall[-_\s]?\d+", r"town-?hall"]),
+    ("networking", [r"networking[-_\s]?(?:session)?[-_\s]?\d+", r"networking"]),
+    ("main-session", [r"main-session", r"plenary", r"opening-ceremony",
+                      r"closing-ceremony", r"open-mic", r"parliamentary"]),
+    ("workshop", [r"workshop-room"]),
+    ("launch-award", [r"launch", r"award", r"laureate"]),
+    ("dc-bpf-nri", [r"dynamic[_-]coalition", r"(?:^|[^a-z])dc-[a-z]",
+                    r"dccos", r"bpf", r"(?:^|[^a-z])nri",
+                    r"intersessional", r"best-practice"]),
+    ("participants", [r"participant", r"registration", r"attendee"]),
+    ("report", [r"igf-\d{4}-report", r"-report", r"report"]),
+]
 
-TYPE_RE = {k: [re.compile(p, re.I) for p in v] for k, v in TYPE_PATTERNS.items()}
+TYPE_P2 = [
+    ("workshop", [r"workshop"]),
+    ("open-forum", [r"open-forum"]),
+    ("day-0-event", [r"day-0", r"pre-event"]),
+    ("lightning-talk", [r"lightning"]),
+    ("town-hall", [r"town-?hall"]),
+    ("networking", [r"networking"]),
+    ("main-session", [r"main-session", r"plenary", r"high-level"]),
+    ("launch-award", [r"launch", r"award", r"laureate"]),
+    ("dc-bpf-nri", [r"dynamic[_-]coalition", r"bpf", r"(?:^|[^a-z])nri",
+                    r"intersessional", r"best-practice"]),
+    ("participants", [r"participant", r"registration", r"attendee"]),
+    ("report", [r"report"]),
+    ("schedule", [r"schedule", r"agenda", r"timetable", r"programme", r"calendar"]),
+]
+
+TYPE_RE_P1 = [(t, [re.compile(p, re.I) for p in ps]) for t, ps in TYPE_P1]
+TYPE_RE_P2 = [(t, [re.compile(p, re.I) for p in ps]) for t, ps in TYPE_P2]
 
 WEIGHTED_RULES = [
     (["workshop", "ws #", "breakout", "ws-"], "workshop", 5),

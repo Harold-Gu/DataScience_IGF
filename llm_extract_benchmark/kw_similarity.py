@@ -2,7 +2,7 @@ import json, os, re, csv, sys
 from collections import Counter
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_STOPWORDS_PATH = os.path.join(_HERE, "..", "igf_pipeline", "models", "english_stopwords.txt")
+_STOPWORDS_PATH = os.path.join(_HERE, "..", "igf_pipeline", "english_stopwords.txt")
 
 
 def _load_stopwords():
@@ -92,8 +92,34 @@ def tf_baseline(window_text, topn=12):
     freq = Counter(w for w in words if len(w) > 3 and w not in STOPWORDS)
     return [w for w, _ in freq.most_common(topn)]
 
+_WINDOW_INDEX_CACHE = {}
+
+
+def _resolve_gold_html(gold_entry, base_dir):
+    rel = str(gold_entry.get("rel_path") or "")
+    if rel:
+        cand = os.path.join(base_dir, rel.replace("/", os.sep))
+        if os.path.exists(cand):
+            return cand
+    fname = str(gold_entry.get("file") or "")
+    cand = os.path.join(base_dir, fname)
+    if os.path.exists(cand):
+        return cand
+    idx = _WINDOW_INDEX_CACHE.get(base_dir)
+    if idx is None:
+        idx = {}
+        for root, _dirs, files in os.walk(base_dir):
+            for fn in files:
+                if fn.lower().endswith((".html", ".htm")):
+                    idx.setdefault(fn.lower(), os.path.join(root, fn))
+        _WINDOW_INDEX_CACHE[base_dir] = idx
+    return idx.get(fname.lower(), "")
+
+
 def extract_window(gold_entry, base_dir):
-    fpath = os.path.join(base_dir, gold_entry["file"])
+    fpath = _resolve_gold_html(gold_entry, base_dir)
+    if not fpath:
+        return ""
     with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
         html = f.read()
     text = re.sub(r"(?is)<script.*?</script>", " ", html)

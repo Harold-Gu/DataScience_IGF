@@ -41,18 +41,24 @@ def init(args):
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=1)
     print(f"[OK] created {len(out)} draft records -> {args.out}")
-    print("     fill fields + 8-10 keywords per record, then run: annotate.py check")
+    print("     fill fields + 1-10 keywords per record (as many as the window supports),")
+    print("     then run: annotate.py check")
 
 
 def check(args):
     data = json.load(open(args.gold, encoding="utf-8-sig"))
     docs = data if isinstance(data, list) else data.get("docs", [])
     n_err = 0
+    n_thin = 0
+    n_ok = 0
     for d in docs:
         win = norm(d.get("window_text", ""))
         kw = d.get("keywords", [])
-        if not (8 <= len(kw) <= 10):
-            print(f"  [ERR] {d.get('doc')}: {len(kw)} keywords (need 8-10)"); n_err += 1
+        if len(kw) > 10:
+            print(f"  [ERR] {d.get('doc')}: {len(kw)} keywords (max 10)"); n_err += 1
+        if len(kw) == 0:
+            print(f"  [WARN] {d.get('doc')}: 0 keywords (thin page, must be justified)")
+            n_thin += 1
         seen = set()
         for k in kw:
             kwn = norm(k.get("kw", ""))
@@ -72,7 +78,11 @@ def check(args):
                 print(f"  [ERR] {d.get('doc')}: missing fields.title"); n_err += 1
         if d.get("year") is None:
             print(f"  [ERR] {d.get('doc')}: missing year"); n_err += 1
-    print(f"[{'ERR' if n_err else 'OK'}] checked {len(docs)} records, {n_err} problems")
+        if len(kw) >= 1:
+            n_ok += 1
+    total = sum(len(d.get("keywords", [])) for d in docs)
+    print(f"[{'ERR' if n_err else 'OK'}] checked {len(docs)} records: "
+          f"{n_ok} with >=1 kw, {n_thin} thin (0 kw), {total} keywords, {n_err} problems")
 
 
 def kappa(args):
