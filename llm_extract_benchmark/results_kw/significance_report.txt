@@ -1,0 +1,16 @@
+Paired bootstrap significance (phrase_f1), B=10000, n_docs=15
+Method: Berg-Kirkpatrick, Burkett & Klein 2012, EMNLP-CoNLL (D12-1091)
+
+Reference (best mean): qwen3.5:9b / fewshot
+
+system                  mean    delta   ci95_lo  ci95_hi  p(2s)   win
+qwen2.5:latest/fewshot 0.2985  +0.0149  -0.0569  0.0902  0.6971  0.651
+qwen2.5:latest/oneshot 0.2252  +0.0882  0.0365  0.1390  0.0002  1.000
+qwen3.5:9b/fewshot     0.3134  +0.0000  0.0000  0.0000  1.0000  0.000
+qwen3.5:9b/oneshot     0.2525  +0.0609  0.0273  0.0969  0.0002  1.000
+qwen3:8b/fewshot       0.2770  +0.0201  -0.1065  0.1466  0.7492  0.622
+qwen3:8b/oneshot       0.1917  +0.0763  0.0021  0.1574  0.0543  0.978
+tf-baseline/tf         0.0000  +0.3134  0.2511  0.3780  0.0000  1.000
+
+delta = mean(best) - mean(this system); p(2s) = two-sided paired-bootstrap p-value;
+win = fraction of bootstrap resamples where best beats this system.

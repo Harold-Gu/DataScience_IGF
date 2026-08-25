@@ -1,0 +1,81 @@
+﻿# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDE
+.idea/
+
+# Crawl outputs (large, regenerable)
+igf_full_*/
+igf_classified_*/
+igf_extracted_*/
+igf_analysis_*/
+igf_denoised_*/
+igf_recovered_*/
+igf_probe_*/
+failed_urls.tsv
+file_map.tsv
+
+# Temporary / staging
+_trash_old/
+_verify_*/
+_dbg_*.py
+_patch_*.py
+_probe_*.py
+_fix_*.py
+_deai_*
+_t_*.py
+_tmp_test_env*/
+_baseline_test/
+_sample_test/
+_smoke_*/
+_smoke_*.json
+_smoke_sample.tsv
+_test_*.json
+_test_*.tsv
+_test_analysis/
+_test_anno/
+_test_windows/
+_tmp_prod_task_report.*
+_archived_dash.log
+_archived_dash.err
+_run_archived_dash.py
+_docx_keywords.txt
+human96_index.html
+human96_titles.txt
+
+# One-off helper scripts and runtime artifacts (keep only the documented resume runner)
+_tools/*
+!_tools/_run_crawl.py
+
+# Documentation (kept locally only; the repo tracks code, experiment assets, and results)
+*.md
+docs/
+*.docx
+
+# Legacy single-file shells (kept locally for old command lines, not tracked)
+scrape_igf.py
+report_scrape.py
+denoise_json.py
+recover_transcripts.py
+analyze_corpus.py
+
+# Backups / duplicate or session-only artifacts
+*.bak
+*.bak.md
+sample_human96.tsv
+llm_extract_benchmark/_run*.py
+llm_extract_benchmark/_score_live.py
+
+# Extra outputs (regenerable)
+igf_llm_extract_*/
+igf_verify_*/
+igf_topics_*/
+sample_windows/_previous_runs/
+
+# University-provided template material
+MSc project template/
+
+# Logs
+*.log

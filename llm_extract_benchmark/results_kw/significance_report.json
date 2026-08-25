@@ -1,0 +1,86 @@
+{
+ "qwen2.5:latest/fewshot": {
+  "n": 15,
+  "mean_a": 0.3134,
+  "mean_b": 0.2985,
+  "delta": 0.0149,
+  "ci95": [
+   -0.0569,
+   0.0902
+  ],
+  "p_two_sided": 0.6971,
+  "win_rate_a": 0.6515
+ },
+ "qwen2.5:latest/oneshot": {
+  "n": 15,
+  "mean_a": 0.3134,
+  "mean_b": 0.2252,
+  "delta": 0.0882,
+  "ci95": [
+   0.0365,
+   0.139
+  ],
+  "p_two_sided": 0.0002,
+  "win_rate_a": 1.0
+ },
+ "qwen3.5:9b/fewshot": {
+  "n": 15,
+  "mean_a": 0.3134,
+  "mean_b": 0.3134,
+  "delta": 0.0,
+  "ci95": [
+   0.0,
+   0.0
+  ],
+  "p_two_sided": 1.0,
+  "win_rate_a": 0.0
+ },
+ "qwen3.5:9b/oneshot": {
+  "n": 15,
+  "mean_a": 0.3134,
+  "mean_b": 0.2525,
+  "delta": 0.0609,
+  "ci95": [
+   0.0273,
+   0.0969
+  ],
+  "p_two_sided": 0.0002,
+  "win_rate_a": 1.0
+ },
+ "qwen3:8b/fewshot": {
+  "n": 4,
+  "mean_a": 0.2971,
+  "mean_b": 0.277,
+  "delta": 0.0201,
+  "ci95": [
+   -0.1065,
+   0.1466
+  ],
+  "p_two_sided": 0.7492,
+  "win_rate_a": 0.6217
+ },
+ "qwen3:8b/oneshot": {
+  "n": 9,
+  "mean_a": 0.268,
+  "mean_b": 0.1917,
+  "delta": 0.0763,
+  "ci95": [
+   0.0021,
+   0.1574
+  ],
+  "p_two_sided": 0.0543,
+  "win_rate_a": 0.978
+ },
+ "tf-baseline/tf": {
+  "n": 15,
+  "mean_a": 0.3134,
+  "mean_b": 0.0,
+  "delta": 0.3134,
+  "ci95": [
+   0.2511,
+   0.378
+  ],
+  "p_two_sided": 0.0,
+  "win_rate_a": 1.0
+ }
+}
