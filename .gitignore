@@ -72,7 +72,8 @@ llm_extract_benchmark/_score_live.py
 igf_llm_extract_*/
 igf_verify_*/
 igf_topics_*/
-sample_windows/_previous_runs/
+# Annotation windows (identical to window_text in gold_annotator_*.json; regenerable via gold-sample)
+sample_windows/
 
 # University-provided template material
 MSc project template/
