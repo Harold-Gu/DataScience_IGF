@@ -395,9 +395,14 @@ def _extract_one(path, src_root, model, out_dir, lock):
     try:
         _, ptype, year, title, body, drupal_brief = _page_payload(path, src_root)
         if not body.strip():
-            return {"file": os.path.basename(path), "rel_path": rel, "type": ptype,
-                    "year": year, "model": model, "status": "error",
-                    "error": "empty body", "result": None}
+            rec = {"file": os.path.basename(path), "rel_path": rel, "type": ptype,
+                   "year": year, "model": model, "status": "skip",
+                   "error": "empty body", "result": None}
+            line = json.dumps(rec, ensure_ascii=False) + "\n"
+            with lock:
+                with open(os.path.join(out_dir, "extraction.jsonl"), "a", encoding="utf-8") as f:
+                    f.write(line)
+            return rec
         messages = [
             {"role": "system", "content": build_system_prompt(ptype)},
             {"role": "user", "content": build_user_prompt(ptype, title, body, drupal_brief)},
@@ -443,7 +448,7 @@ def _load_done(out_dir):
             for line in f:
                 try:
                     r = json.loads(line)
-                    if r.get("status") == "ok" and r.get("rel_path"):
+                    if r.get("rel_path") and r.get("status") in ("ok", "skip"):
                         done.add(r["rel_path"].replace("\\", "/"))
                 except Exception:
                     continue
@@ -466,7 +471,7 @@ def full_extract_run(args):
         print("[FULL-EXTRACT] nothing to do")
         return 0
     lock = threading.Lock()
-    ok = err = 0
+    ok = err = skip = 0
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         futs = {ex.submit(_extract_one, f, src, args.model, out, lock): f for f in todo}
@@ -474,6 +479,8 @@ def full_extract_run(args):
             rec = fut.result()
             if rec.get("status") == "ok":
                 ok += 1
+            elif rec.get("status") == "skip":
+                skip += 1
             else:
                 err += 1
                 line = json.dumps(rec, ensure_ascii=False) + "\n"
@@ -484,8 +491,8 @@ def full_extract_run(args):
                         ff.write("%s\t%s\n" % (rec.get("rel_path", ""), rec.get("error", "")))
             if i % 20 == 0 or i == len(todo):
                 rate = i / max(1.0, (time.time() - t0) / 60.0)
-                print("  [%d/%d] ok=%d err=%d (%.1f pages/min)" % (i, len(todo), ok, err, rate), flush=True)
-    print("[FULL-EXTRACT] done ok=%d err=%d -> %s" % (ok, err, out))
+                print("  [%d/%d] ok=%d err=%d skip=%d (%.1f pages/min)" % (i, len(todo), ok, err, skip, rate), flush=True)
+    print("[FULL-EXTRACT] done ok=%d err=%d skip=%d -> %s" % (ok, err, skip, out))
     return 0
 
 
