@@ -2,9 +2,7 @@
 # Run: python tests/test_download.py   (or: python main.py selftest)
 # Network calls are monkeypatched, so the suite runs offline.
 import io
-import json
 import os
-import shutil
 import tempfile
 import socket
 import threading
@@ -486,34 +484,6 @@ class DownloadPipelineTest(unittest.TestCase):
         self.assertIsNone(soup.select_one('.tabs'))
         self.assertIsNone(soup.select_one('.block-language'))
         self.assertIsNotNone(soup.find('main'))
-
-    def test_gold_annotate_b_template_matches_schema(self):
-        from igf_pipeline import llm as gold_expand
-        tmp = tempfile.mkdtemp()
-        try:
-            with open(os.path.join(tmp, 'sample.tsv'), 'w', encoding='utf-8') as f:
-                f.write('doc\tfile\tyear\tvenue\tsession_type\trel_path\twindow_chars\n')
-                f.write('doc_workshop_2019_01\tpage.html\t2019\t\tworkshop\tworkshop/2019/page.html\t50\n')
-            os.makedirs(os.path.join(tmp, 'sample_windows'))
-            with open(os.path.join(tmp, 'sample_windows', 'doc_workshop_2019_01.txt'), 'w', encoding='utf-8') as f:
-                f.write('window text about cybersecurity governance')
-            cls = os.path.join(tmp, 'cls')
-            os.makedirs(os.path.join(cls, 'workshop', '2019'))
-            with open(os.path.join(cls, 'workshop', '2019', 'page.html'), 'w', encoding='utf-8') as f:
-                f.write('<html><head><title>IGF 2019 WS</title></head><body><p>content</p></body></html>')
-            out = os.path.join(tmp, 'B.json')
-            rc = gold_expand.main(['annotate-b', os.path.join(tmp, 'sample.tsv'),
-                                   '--classified', cls, '--window-dir',
-                                   os.path.join(tmp, 'sample_windows'), '--out', out])
-            self.assertEqual(rc, 0)
-            docs = json.load(open(out, encoding='utf-8'))
-            self.assertEqual(len(docs), 1)
-            self.assertEqual(docs[0]['keywords'], [])
-            self.assertEqual(docs[0]['fields']['title'], 'IGF 2019 WS')
-            self.assertEqual(docs[0]['session_type'], 'workshop')
-            self.assertEqual(docs[0]['year'], 2019)
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_extract_drupal_fields_theme(self):
         html = ('<div class=' + Q + 'field field--name-field-theme' + Q + '>'

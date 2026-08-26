@@ -13,7 +13,6 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 from . import crawl, process
-from .analyze import rake_keywords
 
 
 SCHEMA_KEYS = ["title", "year", "session_type", "speakers", "organizers",
@@ -875,154 +874,6 @@ def _cmd_sample(args):
     return 0
 
 
-def _drupal_of(path):
-    try:
-        raw = open(path, encoding="utf-8", errors="ignore").read()
-        soup = BeautifulSoup(raw, "html.parser")
-        return crawl._extract_drupal_fields_json(soup)
-    except Exception:
-        return {}
-
-
-def _label_kw(spec, drupal):
-    out = []
-    for field, label in spec.get("drupal_fields", []):
-        key = field[len("field-"):].replace("-", "_") if field.startswith("field-") else field.replace("-", "_")
-        if key not in drupal:
-            continue
-        field = key
-        for item in drupal[field].get("content", []):
-            text = re.sub(r"\s+", " ", item.get("text", "")).strip()
-            if not text:
-                continue
-            words = text.split()
-            head = " ".join(words[:4]) if words else ""
-            out.append({"kw": label.lower() + ": " + head, "evidence": text[:120], "source": field})
-    return out
-
-
-def _first_phrase(text, n=5):
-    words = re.sub(r"\s+", " ", text or "").strip().split()
-    return " ".join(words[:n]).lower()
-
-
-def _cmd_annotate_a(args):
-    rows = []
-    with open(args.sample, encoding="utf-8") as f:
-        head = f.readline().rstrip("\n").split("\t")
-        for line in f:
-            parts = line.rstrip("\n").split("\t")
-            if len(parts) >= len(head):
-                rows.append(dict(zip(head, parts)))
-    out = []
-    for r in rows:
-        doc_id = r["doc"]
-        win_path = os.path.join(args.window_dir, doc_id + ".txt")
-        win = open(win_path, encoding="utf-8").read() if os.path.exists(win_path) else ""
-        wnorm = _norm(win)
-        path = os.path.join(args.classified, r["rel_path"])
-        drupal = _drupal_of(path)
-        spec = TYPE_SPECS.get(r["session_type"], {})
-        keywords = []
-        seen = set()
-        for cand in _label_kw(spec, drupal):
-            ev = cand["evidence"]
-            if not ev or _norm(ev) not in wnorm:
-                continue
-            kwn = _norm(cand["kw"])
-            if kwn in seen:
-                continue
-            seen.add(kwn)
-            keywords.append({"kw": cand["kw"][:80], "evidence": ev[:200]})
-        for field in sorted(drupal):
-            if len(keywords) >= 10:
-                break
-            for item in drupal[field].get("content", [])[:2]:
-                text = re.sub(r"\s+", " ", item.get("text", "")).strip()
-                if not text:
-                    continue
-                kwn = _first_phrase(text)
-                if not kwn or kwn in seen or _norm(text[:80]) not in wnorm:
-                    continue
-                seen.add(kwn)
-                keywords.append({"kw": kwn[:80], "evidence": text[:200]})
-                break
-        if len(keywords) < 8:
-            for h in ["policy question", "expected outcomes", "key session takeaways",
-                      "executive summary", "call to action", "rapporteur", "theme"]:
-                idx = wnorm.find(h)
-                if idx >= 0 and len(keywords) < 10:
-                    kw = h + ": " + _first_phrase(win[idx + len(h):idx + 160])
-                    if _norm(kw) not in seen:
-                        seen.add(_norm(kw))
-                        keywords.append({"kw": kw[:80], "evidence": win[idx:idx + 160][:200]})
-        if len(keywords) < 8:
-            for ph in rake_keywords(win, topn=12):
-                if len(keywords) >= 10:
-                    break
-                toks = [t for t in ph.split() if t.isalpha()]
-                if not (2 <= len(toks) <= 4):
-                    continue
-                if not any(len(t) >= 4 for t in toks):
-                    continue
-                kwn = _norm(" ".join(toks))
-                if not kwn or kwn in seen:
-                    continue
-                tok = kwn.split()[0]
-                idx = win.lower().find(tok)
-                if idx < 0:
-                    continue
-                seen.add(kwn)
-                keywords.append({"kw": ph[:80], "evidence": win[idx:idx + 200]})
-        out.append({
-            "doc": doc_id, "file": r["file"], "year": int(r["year"]) if r["year"].isdigit() else None,
-            "venue": "", "session_type": r["session_type"], "window_chars": len(win),
-            "window_text": win, "fields": {"title": ""}, "keywords": keywords,
-        })
-    with open(args.out, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False, indent=1)
-    n_kw = sum(len(d["keywords"]) for d in out)
-    print("[OK] annotator A wrote %d docs, %d keywords -> %s" % (len(out), n_kw, args.out))
-    return 0
-
-
-def _cmd_annotate_b(args):
-    rows = []
-    with open(args.sample, encoding="utf-8") as f:
-        head = f.readline().rstrip("\n").split("\t")
-        for line in f:
-            parts = line.rstrip("\n").split("\t")
-            if len(parts) >= len(head):
-                rows.append(dict(zip(head, parts)))
-    out = []
-    for r in rows:
-        doc_id = r["doc"]
-        win_path = os.path.join(args.window_dir, doc_id + ".txt")
-        win = ""
-        if os.path.exists(win_path):
-            with open(win_path, encoding="utf-8") as f:
-                win = f.read()
-        title = ""
-        try:
-            path = os.path.join(args.classified, r["rel_path"])
-            with open(path, encoding="utf-8", errors="ignore") as f:
-                soup = BeautifulSoup(f.read(), "html.parser")
-            title = (soup.title.string or "").strip() if soup.title else ""
-        except Exception:
-            pass
-        out.append({
-            "doc": doc_id, "file": r["file"], "year": int(r["year"]) if r["year"].isdigit() else None,
-            "venue": "", "session_type": r["session_type"], "window_chars": len(win),
-            "window_text": win, "fields": {"title": title}, "keywords": [],
-        })
-    with open(args.out, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False, indent=1)
-    print("[OK] blank annotator-B template -> %s (%d docs)" % (args.out, len(out)))
-    print("     Fill keywords per doc as [{\"kw\": \"...\", \"evidence\": \"...\"}] (1-10, as supported),")
-    print("     keep doc ids unchanged, then run kappa against gold_annotator_A.json.")
-    return 0
-
-
 def _kappa(am, bm):
     keys = sorted(set(am) & set(bm))
     if not keys:
@@ -1118,18 +969,6 @@ def main(argv=None):
     p1.add_argument("--out", default="sample.tsv")
     p1.add_argument("--window-dir", default="sample_windows")
     p1.set_defaults(fn=_cmd_sample)
-    p2 = sub.add_parser("annotate-a")
-    p2.add_argument("sample")
-    p2.add_argument("--classified", required=True)
-    p2.add_argument("--window-dir", default="sample_windows")
-    p2.add_argument("--out", default="gold_annotator_A.json")
-    p2.set_defaults(fn=_cmd_annotate_a)
-    p2b = sub.add_parser("annotate-b")
-    p2b.add_argument("sample")
-    p2b.add_argument("--classified", required=True)
-    p2b.add_argument("--window-dir", default="sample_windows")
-    p2b.add_argument("--out", default="gold_annotator_B.json")
-    p2b.set_defaults(fn=_cmd_annotate_b)
     p3 = sub.add_parser("kappa")
     p3.add_argument("gold_a")
     p3.add_argument("gold_b")

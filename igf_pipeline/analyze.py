@@ -13,19 +13,9 @@ from itertools import combinations
 from pathlib import Path
 from statistics import mean, median
 
-import networkx as nx
-from sklearn.feature_extraction.text import TfidfVectorizer
 from bs4 import BeautifulSoup
 
 from . import crawl
-
-
-try:
-    from keybert import KeyBERT as _KeyBERT
-except Exception:
-    _KeyBERT = None
-
-
 
 
 MEETING_TYPES = ['workshop', 'open-forum', 'lightning-talk', 'day-0-event',
@@ -111,6 +101,9 @@ def ascii_bar(value, maximum, width=30):
 
 
 def analysis_main(argv=None):
+    import networkx as nx
+    from sklearn.feature_extraction.text import TfidfVectorizer
+
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     parser = argparse.ArgumentParser(description='Deep-dive IGF corpus analysis')
     parser.add_argument('--input', help='path to denoised all.json (default: newest igf_denoised_*/all.json)')
@@ -362,16 +355,16 @@ STOPWORDS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engli
 def _load_stopwords():
     # Glasgow SMART English stop list (318 entries), as bundled in scikit-learn.
     try:
-        from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
-        return set(ENGLISH_STOP_WORDS)
-    except Exception:
-        pass
-    try:
         with open(STOPWORDS_PATH, encoding="utf-8") as fh:
             words = {line.strip().lower() for line in fh if line.strip()}
         if words:
             return words
     except OSError:
+        pass
+    try:
+        from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+        return set(ENGLISH_STOP_WORDS)
+    except Exception:
         pass
     return set("the a an and or but of to in on for with as at by is are was "
                "were be been this that these those it its from we you they he "
@@ -558,6 +551,10 @@ def _builtin_keybert(text, topn=12):
 
 
 def keybert_keywords(text, topn=12):
+    try:
+        from keybert import KeyBERT as _KeyBERT
+    except Exception:
+        _KeyBERT = None
     if _KeyBERT is not None:
         try:
             model = _KeyBERT()
@@ -961,6 +958,8 @@ def _org_of(res):
 
 
 def org_network(recs):
+    import networkx as nx
+
     g = nx.Graph()
     for r in recs:
         res = r.get("result") or {}
@@ -1001,6 +1000,8 @@ def ai_case(recs):
 
 
 def run(args):
+    import networkx as nx
+
     recs = load_records(args)
     print("[ANALYSIS] loaded %d records" % len(recs))
     os.makedirs(args.out, exist_ok=True)

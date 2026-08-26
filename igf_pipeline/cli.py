@@ -13,7 +13,7 @@ COMMANDS = [
     "scrape", "classify", "extract", "validate", "denoise", "recover",
     "analyze", "retry", "selftest", "probe", "run",
     "llm-bench", "llm-verify", "llm-kw", "llm-score", "baselines",
-    "gold-sample", "gold-annotate-a", "gold-annotate-b", "gold-kappa", "gold-stats",
+    "gold-sample", "gold-kappa", "gold-stats",
     "full-extract", "verify-extract", "downstream",
     "hot-topics", "cross-validate",
 ]
@@ -376,14 +376,6 @@ def dispatch(args):
         v = ["sample", args.classify_dir or _latest("igf_classified_") or "", "--target", str(args.limit or 48),
              "--seed", str(args.seed), "--out", args.output or "sample.tsv",
              "--window-dir", args.window_dir]
-        return llm.main(v)
-    if cmd == "gold-annotate-a":
-        v = ["annotate-a", args.input or "sample.tsv", "--classified", args.classify_dir or _latest("igf_classified_") or "",
-             "--window-dir", args.window_dir, "--out", args.output or "gold_annotator_A.json"]
-        return llm.main(v)
-    if cmd == "gold-annotate-b":
-        v = ["annotate-b", args.input or "sample.tsv", "--classified", args.classify_dir or _latest("igf_classified_") or "",
-             "--window-dir", args.window_dir, "--out", args.output or "gold_annotator_B.json"]
         return llm.main(v)
     if cmd == "gold-kappa":
         v = ["kappa", args.input or "gold_annotator_A.json", args.gold or "gold_annotator_B.json"]
