@@ -16,8 +16,9 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 from . import crawl
-from .config import (SEP, SEP2, TYPE_PRIORITY, TYPE_RE_P1, TYPE_RE_P2, WEIGHTED_RULES,
-                     _classify_err_lock, _classify_errors)
+from .config import (FOLDER_TYPE_MAP, SEP, SEP2, TYPE_PRIORITY, TYPE_RE_P1,
+                     TYPE_RE_P2, WEIGHTED_RULES, _classify_err_lock,
+                     _classify_errors)
 
 
 
@@ -30,6 +31,18 @@ def _classify_by_filename(fname):
     for t,patterns in TYPE_RE_P2:
         for p in patterns:
             if p.search(low):return t
+    return None
+
+def _classify_by_folder(rel):
+    # Fallback for pages whose filename has no session signal: the crawl
+    # folder (workshops-2017, main-sessions-2022, transcripts, ...) states
+    # the session type.  Filename always wins; archived/dashboard folders
+    # mix types and have no entry in the map.
+    for part in rel.replace("\\", "/").lower().split("/"):
+        seg = re.sub(r"^\d+_", "", part)
+        for key, ctype in FOLDER_TYPE_MAP.items():
+            if seg == key or seg.startswith(key + "-") or seg.startswith(key + "_"):
+                return ctype
     return None
 
 def _classify_by_content(html):
@@ -65,8 +78,34 @@ def _validate_html(html,fname):
         low=html[:2000].lower()
         if"cf-browser-verify"in low or"just a moment"in low:issues.append("cloudflare_block")
         if"access denied"in low and len(html)<2000:issues.append("access_denied")
+        title=((soup.title.string or"").strip())if soup.title else""
+        list_issue=_detect_list_page(html,title,len(soup.find_all("a",href=True)))
+        if list_issue:issues.append(list_issue)
+        if main:
+            crawl._strip_noise(soup)
+            main2=soup.find("main")or soup.find(id="main-content")or soup.find("body")
+            stripped=main2.get_text(separator=" ",strip=True)if main2 else""
+            if len(stripped)<80:issues.append("no_content")
     except:issues.append("parse_error")
     return issues
+
+def _detect_list_page(html,title,link_count):
+    # Pure index pages: sched events without a published schedule, sched
+    # venue/track listing pages ("Schedule For ... Events @ ..."), and
+    # "Transcripts" link directories.  They have a valid DOM and enough text
+    # to pass the structural checks, so they need their own signal.
+    low=html.lower()
+    if"empty-schedule-message"in low or"no schedule listed"in low:
+        return"sched_stub"
+    if re.search(r"IGF\s*\d{4}\s*:\s*Schedule\s*For",title or"",re.I):
+        return"sched_index"
+    if re.search(r"^IGF\s*\d{4}\s*:(?:\s*Directory)?\s*$",title or"",re.I):
+        return"sched_directory"
+    if re.search(r":\s*Schedule\s*$",title or"",re.I):
+        return"sched_schedule_index"
+    if(title or"").strip().lower()=="transcripts"and link_count>=10:
+        return"transcript_index"
+    return None
 
 def _content_hash(html):
     soup=BeautifulSoup(html,"html.parser")
@@ -76,12 +115,25 @@ def _content_hash(html):
     return hashlib.md5(text.encode()).hexdigest()
 
 def _extract_year(fname):
-    m=re.search(r"(20\d{2})",fname)
+    # Year priority: igf-YYYY in the filename, then any token-bounded YYYY in
+    # the filename, then an exact year folder, then any bounded YYYY in a path
+    # segment.  Digits embedded in hash names (eb799444e2012140...) are not
+    # token bounded and fall through to the crawl folder year.
+    path=fname.replace("\\","/")
+    base=path.rsplit("/",1)[-1]
+    m=re.search(r"igf[-_\s]*(20\d{2})",base,re.I)
+    if not m:
+        m=re.search(r"(?:^|[^0-9])(20\d{2})(?=[^0-9]|$)",base)
     if m:
         y=int(m.group(1))
         if 2006<=y<=2025:return y
-    for part in fname.replace("\\","/").split("/"):
-        m2=re.search(r"(20\d{2})",part)
+    parts=path.split("/")
+    for part in parts:
+        if re.fullmatch(r"20\d{2}",part):
+            y=int(part)
+            if 2006<=y<=2025:return y
+    for part in parts:
+        m2=re.search(r"(?:^|[^0-9])(20\d{2})(?=[^0-9]|$)",part)
         if m2:
             y2=int(m2.group(1))
             if 2006<=y2<=2025:return y2
@@ -90,6 +142,7 @@ def _extract_year(fname):
 def _process_html_file(fp,src_root):
     try:
         fname=os.path.basename(fp)
+        rel=os.path.relpath(fp,src_root).replace("\\","/")
         with open(fp,"r",encoding="utf-8",errors="ignore")as f:html=f.read()
         if len(html)<300:return None
         try:
@@ -100,11 +153,14 @@ def _process_html_file(fp,src_root):
         ntype=_classify_by_filename(fname)
         if ntype:ctype,type_src=ntype,"filename"
         else:
-            ttype=_classify_by_content(html)
-            if ttype:ctype,type_src=ttype,"title"
-            else:ctype,type_src="other","other"
+            ftype=_classify_by_folder(rel)
+            if ftype:ctype,type_src=ftype,"folder"
+            else:
+                ttype=_classify_by_content(html)
+                if ttype:ctype,type_src=ttype,"title"
+                else:ctype,type_src="other","other"
         chash=_content_hash(html)
-        year=_extract_year(fname)or _extract_year(str(fp))
+        year=_extract_year(rel)
         issues=_validate_html(html,fname)
         is_valid=len(issues)==0
         return{"path":fp,"name":fname,"type":ctype,"type_src":type_src,"title":title,
@@ -163,10 +219,11 @@ def run_classify(src_dir,out_dir=None,workers=4,dry_run=False):
         flag=" !"if ic>0 else""
         print(f"    {t:<22s}: {type_counts[t]:>5d}  (valid={vc}, invalid={ic}){flag}  [{years_str}]")
     name_src=sum(1 for r in results if r.get("type_src")=="filename")
+    folder_src=sum(1 for r in results if r.get("type_src")=="folder")
     title_src=sum(1 for r in results if r.get("type_src")=="title")
     other_src=sum(1 for r in results if r.get("type_src")=="other")
     bad=[r for r in results if _classify_by_filename(r["name"])and _classify_by_filename(r["name"])!=r["type"]]
-    print(f"\n  Type source: {name_src} by filename, {title_src} by title, {other_src} other")
+    print(f"\n  Type source: {name_src} by filename, {folder_src} by folder, {title_src} by title, {other_src} other")
     print(f"  Name/type consistency: {len(results)-len(bad)}/{len(results)} consistent, {len(bad)} mismatches")
     if bad:
         for r in bad[:10]:print(f"    MISMATCH {r['name']}: filename={_classify_by_filename(r['name'])} assigned={r['type']}")
@@ -218,8 +275,16 @@ def _extract_one_file(fp,src_root):
         soup=BeautifulSoup(html,"html.parser")
         if _validate_html(html,fname):return None
         crawl._strip_noise(soup)
-        page_type=_classify_by_filename(fname)or _classify_by_content(html)or"other"
-        year=_extract_year(fname)or _extract_year(str(fp))
+        ntype=_classify_by_filename(fname)
+        if ntype:page_type,type_src=ntype,"filename"
+        else:
+            ftype=_classify_by_folder(rel)
+            if ftype:page_type,type_src=ftype,"folder"
+            else:
+                ttype=_classify_by_content(html)
+                if ttype:page_type,type_src=ttype,"title"
+                else:page_type,type_src="other","other"
+        year=_extract_year(rel)
         title=soup.title.string.strip()if soup.title else""
         main=soup.find("main")or soup.find(id="main-content")or soup.find("body")
         body_text=re.sub(r"\s+"," ",main.get_text(separator=" ",strip=True))if main else""
@@ -250,7 +315,7 @@ def _extract_one_file(fp,src_root):
         if year is None:q.append("no_year")
         quality=",".join(q)or"ok"
         return{"file":fname,"rel_path":rel,"folder":folder,"type":page_type,
-               "year":year,"title":title,"drupal_fields":drupal_fields,
+               "type_src":type_src,"year":year,"title":title,"drupal_fields":drupal_fields,
                "body_text":body_text,"headings":headings,"meta":meta,
                "links":links,"content_hash":chash,"size_bytes":len(html),
                "quality":quality,"is_spa_shell":is_spa}
@@ -510,7 +575,9 @@ STRONG_RE = re.compile(
     r'dynamic coalition|best practice forum|\bnri\b|\bmag\b|open forum|'
     r'lightning talk|day 0|pre-?event|town ?hall|main session|'
     r'networking session|plenary|workshop|rapporteur|panelist|'
-    r'sharm el sheikh', re.I)
+    r"sharm el sheikh|gobernanza de internet|gouvernance de l' ?internet|"
+    r'governan[çc]a (?:da|de) internet|gesti[óoão]n de internet|'
+    r'governo da internet', re.I)
 
 # Weak, meeting-document signals (agenda, programme, synthesis paper, ...).
 # They are not enough on their own inside a body, but a hit in the filename
@@ -533,10 +600,12 @@ BRAND_SUFFIX_RE = re.compile(
     r'(?:^\s*|\|\s*|[-–—]\s*)'
     r'(google drive|google docs|google sheets|google forms|zoom|flickr|'
     r'dropbox|youtube|facebook|instagram|linkedin|twitter|pinterest|'
-    r'tumblr|slideshare|scribd|prezi|eventbrite)\s*$', re.I)
+    r'tumblr|slideshare|scribd|prezi|eventbrite|medium|substack|blogspot|'
+    r'wordpress|livejournal|internet archive(?: blogs)?)\s*$', re.I)
 BRAND_PREFIX_RE = re.compile(
     r'^(google drive|google docs|google sheets|google forms|zoom|flickr|'
-    r'youtube|dropbox|facebook|instagram|linkedin)\b', re.I)
+    r'youtube|dropbox|facebook|instagram|linkedin|medium|substack|blogspot|'
+    r'wordpress|livejournal|internet archive)\b', re.I)
 YOUTUBE_CONSENT_RE = re.compile(r'before you continue to', re.I)
 
 # Drupal field keys that only exist on structured IGF meeting pages.
@@ -599,6 +668,25 @@ def _brand_title(title):
     return bool(YOUTUBE_CONSENT_RE.search(title))
 
 
+# Hosting / interstitial shell pages.  Wayback Machine is deliberately not
+# listed: old .txt/.rtf meeting documents keep that title and are valuable.
+JUNK_TITLE_RE = re.compile(
+    r'^\s*(?:email protection|just a moment|attention required|'
+    r'please wait|enable javascript|checking your browser|robot check|'
+    r'security check|one more step|site can.?t be reached|'
+    r'page (?:not found|could not be found|not available|not exist)|'
+    r'404|403 forbidden|error \d{3}|access denied|service unavailable|'
+    r'this site requires javascript|suspected phishing)\b', re.I)
+
+# Terms that show a body is a meeting document, not a generic page that
+# merely contains "session" or "program".
+DOC_SPEC_RE = re.compile(
+    r'agenda|programme|verbatim|proceedings|synthesis|questionnaire|'
+    r'taking stock|emerging issues|roundtable|call for proposals|'
+    r'opening ceremony|closing ceremony|regional perspectives|'
+    r'critical internet resources|press release|newsletter', re.I)
+
+
 def assess(record, min_body):
     title = _norm(record.get('title')).strip()
     rel_path = _decoded(record.get('rel_path'))
@@ -609,19 +697,17 @@ def assess(record, min_body):
     meta_strong, _ = _meta_signal(record)
     evidence = []
 
-    if _brand_title(title) and not drupal_sig:
-        evidence.append('title matches a third-party brand pattern')
-        return False, 'third_party_page', evidence
-
     if drupal_sig:
         return True, '', []
-
     if _strong_hits(title):
         return True, '', []
     if _strong_hits(rel_path):
         return True, '', []
     if meta_strong:
         return True, '', []
+    if _brand_title(title):
+        evidence.append('title matches a third-party brand pattern')
+        return False, 'third_party_page', evidence
     if _strong_hits(body) >= 2:
         return True, '', []
     if rec_type in MEETING_TYPES:
@@ -629,7 +715,11 @@ def assess(record, min_body):
 
     if _weak_hits(rel_path) or _weak_hits(title):
         return True, '', []
-    if _weak_hits(body) >= 3 and body_len >= min_body:
+
+    if JUNK_TITLE_RE.search(title):
+        evidence.append('title matches an interstitial/error shell pattern')
+        return False, 'shell_page', evidence
+    if _weak_hits(body) >= 3 and body_len >= min_body and DOC_SPEC_RE.search(body):
         return True, '', []
 
     title_lower = title.lower()

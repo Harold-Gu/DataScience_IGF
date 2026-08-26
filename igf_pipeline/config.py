@@ -113,6 +113,27 @@ TYPE_P2 = [
     ("schedule", [r"schedule", r"agenda", r"timetable", r"programme", r"calendar"]),
 ]
 
+# Crawl folders that guarantee a session type even when the filename carries
+# no signal.  Filename rules (TYPE_P1/TYPE_P2) always win over this map; the
+# map is only consulted as a fallback so e.g. igf-2022-themes.html inside
+# 01_sessions/main-sessions-2022/content/ is typed main-session instead of
+# being dumped into "other".  Archived/dashboard folders mix types and are
+# intentionally absent.
+FOLDER_TYPE_MAP = {
+    "workshops": "workshop",
+    "open-forums": "open-forum",
+    "lightning-talks": "lightning-talk",
+    "day-0-events": "day-0-event",
+    "launches-awards": "launch-award",
+    "networking-sessions": "networking",
+    "main-sessions": "main-session",
+    "town-halls": "town-hall",
+    "transcripts": "transcript",
+    "reports": "report",
+    "schedules": "schedule",
+    "participants": "participants",
+}
+
 TYPE_RE_P1 = [(t, [re.compile(p, re.I) for p in ps]) for t, ps in TYPE_P1]
 TYPE_RE_P2 = [(t, [re.compile(p, re.I) for p in ps]) for t, ps in TYPE_P2]
 

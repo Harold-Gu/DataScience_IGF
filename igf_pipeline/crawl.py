@@ -641,7 +641,8 @@ def _strip_noise(soup):
         cls=" ".join(el.get("class")or[])
         ident=str(el.get("id")or"")
         if not(_NOISE_RE.search(cls)or _NOISE_RE.search(ident)):continue
-        if el.select_one("[class*='field--name-field-']"):continue
+        if"block-system-main-block"in cls:continue
+        if el.select_one("[class*='field--name-field-'],[class*='field--name-body']"):continue
         el.decompose()
     return soup
 
