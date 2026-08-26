@@ -107,171 +107,108 @@ def _discover_reports(out_root,workers=WORKERS,years=None):
                 try:
                     html=open(fp,"r",encoding="utf-8",errors="ignore").read()
                 except:continue
-
                 soup=BeautifulSoup(html,"html.parser")
-
                 main=soup.find("main")or soup.find(id="main-content")or soup
-
                 if main is None:continue
-
                 for a in main.find_all("a",href=True):
-
                     href=crawl._unwrap_wb(a["href"].strip())
-
                     if not href or href.startswith(("#","javascript:"))or"mailto:"in href:continue
-
                     txt=re.sub(r"\s+"," ",a.get_text(strip=True)).lower()
-
                     href_low=href.lower()
-
                     if any(kw in txt for kw in _REPORT_HINTS)or any(kw in href_low for kw in["report","outcome","summary","synthesis","proceedings"]):
-
                         cands.add(crawl._make_url(href))
 
         if not cands:continue
 
         sub=os.path.join(base,str(y));os.makedirs(sub,exist_ok=True)
-
         tasks=[]
-
         for u in cands:
-
             if crawl._is_file(u):
-
                 tasks.append((u,os.path.join(sub,crawl._clean(u.split("/")[-1].split("?")[0])),str(y)))
-
             elif crawl._same_domain(u,IGF_BASE):
-
                 tasks.append((u,os.path.join(sub,crawl._clean(u.split("/")[-1].split("?")[0])+".html"),str(y)))
 
         if tasks:
-
             print(f"  [{y}] discovered {len(tasks)} report candidates from archived/dashboard pages")
-
             crawl._download_batch(tasks,workers);found_any=True
-
     if not found_any:print("  No extra report candidates discovered from archived/dashboard pages.")
 
 
 
 def step_transcripts(out_root,workers=WORKERS,years=None):
-
     print("\n"+"="*55+"\n  STEP 3: Transcripts (depth-1 crawl)\n"+"="*55)
-
     base=os.path.join(out_root,"03_transcripts")
-
     for y in year_range(years):
-
         sub=os.path.join(base,str(y))
-
         seed_url=None
-
         for url_tmpl in[IGF_BASE+"/en/igf-{year}-transcripts",IGF_BASE+"/en/content/igf-{year}-transcripts"]:
-
             test_url=url_tmpl.format(year=y)
-
             r=crawl._fetch(test_url)
-
             if r is None:r=crawl._fetch_wb(test_url,y)
-
             if r is not None:
-
                 seed_url=test_url;break
-
         if seed_url is None:
-
             print(f"  [{y}] SKIP (all URL patterns failed)")
 
             time.sleep(random.uniform(1.0,2.0));continue
-
         os.makedirs(sub,exist_ok=True)
-
         crawl._atomic_write_text(os.path.join(sub,"index.html"),r.text)
-
         print(f"\n  [{y}] {seed_url}",flush=True)
 
         tasks=[];seen=set();list_pages=[seed_url];seen_pages={seed_url.lower()};page_htmls={seed_url:r.text};pi=0
-
         while pi<len(list_pages)and len(list_pages)<200:
-
             cur=list_pages[pi];pi+=1
-
             soup=BeautifulSoup(page_htmls[cur],"html.parser")
-
             main=soup.find("main")or soup.find(id="main-content")or soup
-
             if main is not None:
-
                 for a in main.find_all("a",href=True):
-
                     href=crawl._unwrap_wb(a.get("href","").strip())
-
                     if not href or href.startswith(("#","javascript:"))or"mailto:"in href:continue
-
                     full=crawl._make_url(href,cur)
-
                     if full in seen:continue
 
                     seen.add(full)
 
                     if full.lower()in seen_pages:continue
-
                     netloc=urlparse(full).netloc.lower()
 
                     if"youtu.be"in netloc or"youtube"in netloc:continue
-
                     if crawl._is_file(full):
-
                         tasks.append((full,os.path.join(sub,crawl._clean(full.split("/")[-1].split("?")[0])),str(y)))
 
                     elif crawl._is_igf_domain(full):
-
                         slug=urlparse(full).path.strip("/").split("/")[-1].lower()
 
                         if slug in("en","es","fr","ar","zh","ru"):continue
-
                         tasks.append((full,os.path.join(sub,f"{crawl._clean(full.split('/')[-1].split('?')[0])}.html"),str(y)))
 
             for nxt in crawl._next_page_links(soup,cur):
-
                 if nxt.lower()in seen_pages:continue
-
                 seen_pages.add(nxt.lower())
-
                 r2=crawl._fetch(nxt)
 
                 if r2 is None:r2=crawl._fetch_wb(nxt,y)
 
                 if r2 is None:
-
                     time.sleep(random.uniform(1.0,2.0));continue
 
                 page_htmls[nxt]=r2.text;list_pages.append(nxt)
-
         print(f"    {len(tasks)} items linked from the list page(s)")
 
         if tasks:crawl._download_batch(tasks,max(workers,8))
-
         time.sleep(random.uniform(1.0,2.0))
-
 
 
 def step_schedules(out_root,workers=WORKERS,years=None):
 
     print("\n"+"="*55+"\n  STEP 4: Schedules\n"+"="*55)
-
     base=os.path.join(out_root,"04_schedules")
-
     for y in year_range(years):
-
         sub=os.path.join(base,str(y))
-
         for url_tmpl in[IGF_BASE+"/en/content/igf-{year}-schedule",IGF_BASE+"/en/igf-{year}-schedule"]:
 
             test_url=url_tmpl.format(year=y)
-
             r=crawl._fetch(test_url)
-
             if r is None:r=crawl._fetch_wb(test_url,y)
 
             if r is not None:
