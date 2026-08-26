@@ -8,12 +8,16 @@ import shutil
 import sys
 import time
 import urllib.parse
+import warnings
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
 from bs4 import BeautifulSoup
+from bs4 import XMLParsedAsHTMLWarning
+
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 from . import crawl
 from .config import (FOLDER_TYPE_MAP, SEP, SEP2, TYPE_PRIORITY, TYPE_RE_P1,
