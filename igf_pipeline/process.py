@@ -3,6 +3,7 @@ import hashlib
 import html
 import json
 import os
+import random
 import re
 import shutil
 import sys
@@ -690,6 +691,23 @@ DOC_SPEC_RE = re.compile(
     r'opening ceremony|closing ceremony|regional perspectives|'
     r'critical internet resources|press release|newsletter', re.I)
 
+# Wayback snapshot pages carry a "COLLECTED BY ... TIMESTAMPS The Wayback
+# Machine - <url>" header in front of the saved page text.  When nothing but
+# that header is left the page is a collection shell; when real content
+# follows, only the header is boilerplate and the content is kept.
+WAYBACK_HEADER_RE = re.compile(
+    r'^\s*COLLECTED BY.*?TIMESTAMPS\s+The Wayback Machine\s*-\s*(?:https?://\S+)?\s*',
+    re.I | re.S)
+WAYBACK_COLLECTED_RE = re.compile(r'^\s*COLLECTED BY\b', re.I)
+
+
+def _wayback_split(body):
+    body = _norm(body).strip()
+    match = WAYBACK_HEADER_RE.match(body)
+    if match:
+        return body[match.end():].strip(), True
+    return body, False
+
 
 def assess(record, min_body):
     title = _norm(record.get('title')).strip()
@@ -703,6 +721,13 @@ def assess(record, min_body):
 
     if drupal_sig:
         return True, '', []
+    remainder, has_header = _wayback_split(body)
+    if has_header and len(remainder) < 200:
+        evidence.append('Wayback collection shell (no page content after the snapshot header)')
+        return False, 'wayback_shell', evidence
+    if not has_header and WAYBACK_COLLECTED_RE.match(body):
+        evidence.append('Wayback collection shell (no page content)')
+        return False, 'wayback_shell', evidence
     if _strong_hits(title):
         return True, '', []
     if _strong_hits(rel_path):
@@ -850,6 +875,214 @@ def denoise_main(argv=None):
     with open(out_dir / 'denoise_report.txt', 'w', encoding='utf-8') as handle:
         handle.write('\n'.join(report_lines))
     print('\nWrote %s (all.json, removed.json, denoise_report.txt)' % out_dir)
+    return 0
+
+
+
+FORMAL_TYPES = [
+    'workshop', 'open-forum', 'lightning-talk', 'day-0-event',
+    'launch-award', 'networking', 'main-session', 'town-hall',
+]
+
+# List/index pages keep a plural section title (Workshops, Open Forums, ...)
+# and only a short body.  They carry no session content for the LLM stage.
+LIST_TITLE_RE = re.compile(
+    r'^\s*(?:workshops?|workshop proposals?|open forums?|lightning talks?|'
+    r'networking sessions?|town halls?|main sessions?|day 0 events?|'
+    r'pre[- ]?events?|launches? (?:&|and) awards?)\s*$', re.I)
+
+
+def _stratified_quota(sizes, target, seed):
+    # Proportional allocation across strata, adjusted to the exact target.
+    rng = random.Random(seed)
+    total = sum(sizes.values()) or 1
+    quotas = {}
+    for key, size in sizes.items():
+        quotas[key] = min(max(1, round(size * target / total)), size)
+    while sum(quotas.values()) > target:
+        key = max(quotas, key=lambda k: (quotas[k] - 1, sizes[k]))
+        if quotas[key] <= 1:
+            break
+        quotas[key] -= 1
+    while sum(quotas.values()) < target:
+        room = {k: sizes[k] - quotas[k] for k in sizes if sizes[k] > quotas[k]}
+        if not room:
+            break
+        key = max(room, key=lambda k: (room[k], quotas[k]))
+        quotas[key] += 1
+    return quotas
+
+
+def subset_main(argv=None):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    parser = argparse.ArgumentParser(
+        description='Distill a representative subset JSON from the full extracted corpus')
+    parser.add_argument('--input', help='path to all.json (default: newest igf_extracted_*/all.json)')
+    parser.add_argument('--output', help='output directory (default: igf_subset_<timestamp>)')
+    parser.add_argument('--types', default=','.join(FORMAL_TYPES),
+                        help='comma-separated types to keep; "all" keeps every type '
+                             '(default: the 8 formal meeting types)')
+    parser.add_argument('--no-denoise', action='store_true',
+                        help='keep every page of the selected types without noise filtering')
+    parser.add_argument('--min-body', type=int, default=80,
+                        help='drop records with body_text shorter than this (default 80)')
+    parser.add_argument('--sample', type=int, default=0,
+                        help='optional cap: proportional sample per type x year (0 = keep all)')
+    parser.add_argument('--seed', type=int, default=42, help='sampling seed (default 42)')
+    parser.add_argument('--dry-run', action='store_true', help='print stats without writing files')
+    args = parser.parse_args(argv)
+
+    input_path = Path(args.input) if args.input else find_latest_input(Path.cwd())
+    if input_path is None:
+        sys.exit('No input given and no igf_extracted_*/all.json found in %s' % Path.cwd())
+    if input_path.is_dir():
+        input_path = input_path / 'all.json'
+    input_path = input_path.resolve()
+
+    print('INPUT :', input_path)
+    raw = _load_records(input_path)
+    print('Loaded %d records' % len(raw))
+
+    selected = set(t.strip() for t in args.types.split(',') if t.strip())
+    if 'all' in selected:
+        selected = set()
+    unknown = selected - MEETING_TYPES
+    if unknown:
+        print('WARNING: unknown types ignored: %s' % ','.join(sorted(unknown)))
+        selected -= unknown
+    denoise = not args.no_denoise
+
+    cell_totals = Counter()
+    for rec in raw:
+        if not isinstance(rec, dict):
+            continue
+        rec_type = _norm(rec.get('type')) or 'other'
+        if selected and rec_type not in selected:
+            continue
+        cell_totals[(rec_type, _norm(rec.get('year')))] += 1
+
+    kept, broken = [], 0
+    seen = set()
+    reason_counter, type_kept = Counter(), Counter()
+    removed_lines = []
+
+    for rec in raw:
+        if not isinstance(rec, dict):
+            broken += 1
+            continue
+        rel_path = _norm(rec.get('rel_path'))
+        ckey = _norm(rec.get('content_hash')) or rel_path
+        if ckey and ckey in seen:
+            reason_counter['duplicate'] += 1
+            removed_lines.append(('duplicate', rec.get('title'), rel_path, 'same content hash'))
+            continue
+        if ckey:
+            seen.add(ckey)
+        rec_type = _norm(rec.get('type')) or 'other'
+        if selected and rec_type not in selected:
+            reason_counter['type_excluded'] += 1
+            continue
+        title = _norm(rec.get('title')).strip()
+        body = _norm(rec.get('body_text')).strip()
+        remainder, has_header = _wayback_split(body)
+        cell_key = (rec_type, _norm(rec.get('year')))
+        if (LIST_TITLE_RE.match(title) and len(remainder) < 2000
+                and cell_totals.get(cell_key, 0) > 1):
+            reason_counter['list_page'] += 1
+            removed_lines.append(('list_page', rec.get('title'), rel_path,
+                                  '%d content chars' % len(remainder)))
+            continue
+        if denoise:
+            keep, reason, evidence = assess(rec, args.min_body)
+            if not keep:
+                reason_counter[reason] += 1
+                removed_lines.append((reason, rec.get('title'), rel_path, '; '.join(evidence)))
+                continue
+        if args.min_body > 0 and len(remainder) < args.min_body:
+            reason_counter['empty_body'] += 1
+            removed_lines.append(('empty_body', rec.get('title'), rel_path,
+                                  '%d content chars' % len(remainder)))
+            continue
+        kept.append(rec)
+        if has_header and remainder:
+            rec['body_text'] = remainder
+        type_kept[rec_type] += 1
+
+    sample_note = ''
+    sample_counts = Counter()
+    if args.sample and args.sample < len(kept):
+        groups = defaultdict(list)
+        for idx, rec in enumerate(kept):
+            groups[(str(rec.get('type')), str(rec.get('year')))].append(idx)
+        quotas = _stratified_quota({k: len(v) for k, v in groups.items()}, args.sample, args.seed)
+        rng = random.Random(args.seed)
+        picks = []
+        for key, idxs in groups.items():
+            for idx in rng.sample(idxs, quotas.get(key, 0)):
+                picks.append(idx)
+                sample_counts[key] += 1
+        picks.sort()
+        kept = [kept[i] for i in picks]
+        sample_note = 'sample=%d seed=%d (stratified type x year, %d strata)' % (
+            len(kept), args.seed, len(groups))
+
+    removed = len(raw) - len(kept) - broken
+
+    print('\nRESULT: kept=%d removed=%d broken=%d' % (len(kept), removed, broken))
+    if sample_note:
+        print('Sampling: %s' % sample_note)
+    print('Removed by reason:')
+    for reason, count in reason_counter.most_common():
+        print('  %-20s %d' % (reason, count))
+    print('Kept by type (before sampling):')
+    for rec_type, count in sorted(type_kept.items(), key=lambda kv: -kv[1]):
+        print('  %-20s %d' % (rec_type, count))
+    if sample_note:
+        print('Sampled by type x year:')
+        for key, count in sorted(sample_counts.items(), key=lambda kv: -kv[1]):
+            print('  %-24s %d' % ('%s/%s' % key, count))
+
+    if args.dry_run:
+        print('\nDry run - nothing written.')
+        return 0
+
+    out_dir = Path(args.output) if args.output else Path.cwd() / ('igf_subset_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with open(out_dir / 'all.json', 'w', encoding='utf-8') as handle:
+        json.dump(kept, handle, ensure_ascii=False, indent=1)
+    with open(out_dir / 'file_list.tsv', 'w', encoding='utf-8', newline='') as handle:
+        handle.write('rel_path\ttype\tyear\ttitle\n')
+        for rec in kept:
+            title = _norm(rec.get('title')).replace('\t', ' ').replace('\n', ' ')
+            handle.write('%s\t%s\t%s\t%s\n' % (
+                _norm(rec.get('rel_path')), _norm(rec.get('type')), _norm(rec.get('year')), title))
+
+    matrix = defaultdict(Counter)
+    for rec in kept:
+        matrix[_norm(rec.get('type')) or '(none)'][_norm(rec.get('year')) or '(none)'] += 1
+    years = sorted({y for t in matrix.values() for y in t}, key=lambda y: (not y.isdigit(), y))
+    report_lines = [
+        'input: %s' % input_path,
+        'types: %s' % (','.join(sorted(selected)) if selected else 'all'),
+        'denoise: %s' % ('on' if denoise else 'off'),
+        'min_body: %d' % args.min_body,
+        'total: %d kept: %d removed: %d broken: %d' % (len(raw), len(kept), removed, broken),
+        'reasons: %s' % dict(reason_counter),
+    ]
+    if sample_note:
+        report_lines.append('sampling: %s' % sample_note)
+    report_lines.append('kept_by_type: %s' % dict(type_kept))
+    report_lines.append('kept_type_x_year:')
+    for rec_type in sorted(matrix):
+        row = ' '.join('%s:%d' % (y, matrix[rec_type][y]) for y in years)
+        report_lines.append('  %-16s %s' % (rec_type, row))
+    report_lines.append('removed_samples (first 50):')
+    for reason, title, rel_path, evidence in removed_lines[:50]:
+        report_lines.append('  [%s] %s | %s | %s' % (reason, title or '(no title)', rel_path, evidence))
+    with open(out_dir / 'subset_report.txt', 'w', encoding='utf-8') as handle:
+        handle.write('\n'.join(report_lines))
+
+    print('\nWrote %s (all.json, file_list.tsv, subset_report.txt)' % out_dir)
     return 0
 
 

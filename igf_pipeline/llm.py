@@ -335,9 +335,10 @@ def build_user_prompt(page_type, title, body_text, drupal_fields):
 
 
 OLLAMA_CHAT = "http://127.0.0.1:11434/api/chat"
-TIMEOUT = 300
+TIMEOUT = 900
 BODY_HEAD = 9000
 BODY_TAIL = 3000
+STUB_BODY_MIN = 300
 
 def _ollama_chat(model, messages, temperature=0.0, attempts=2):
     payload = {"model": model, "messages": messages, "stream": False,
@@ -403,6 +404,15 @@ def _extract_one(path, src_root, model, out_dir, lock):
                 with open(os.path.join(out_dir, "extraction.jsonl"), "a", encoding="utf-8") as f:
                     f.write(line)
             return rec
+        if len(body.strip()) < STUB_BODY_MIN:
+            rec = {"file": os.path.basename(path), "rel_path": rel, "type": ptype,
+                   "year": year, "model": model, "status": "skip",
+                   "error": "stub body (%d chars)" % len(body.strip()), "result": None}
+            line = json.dumps(rec, ensure_ascii=False) + "\n"
+            with lock:
+                with open(os.path.join(out_dir, "extraction.jsonl"), "a", encoding="utf-8") as f:
+                    f.write(line)
+            return rec
         messages = [
             {"role": "system", "content": build_system_prompt(ptype)},
             {"role": "user", "content": build_user_prompt(ptype, title, body, drupal_brief)},
@@ -425,6 +435,11 @@ def _extract_one(path, src_root, model, out_dir, lock):
             return {"file": os.path.basename(path), "rel_path": rel, "type": ptype,
                     "year": year, "model": model, "status": "error",
                     "error": "model returned null", "latency": latency, "result": None}
+        if isinstance(result, dict):
+            if result.get("year") is None and str(year).isdigit():
+                result["year"] = int(year)
+            if not result.get("session_type"):
+                result["session_type"] = ptype
         rec = {"file": os.path.basename(path), "rel_path": rel, "type": ptype,
                "year": year, "model": model, "status": "ok", "latency": latency,
                "body_chars": len(body), "prompt_chars": len(messages[1]["content"]),
@@ -455,18 +470,40 @@ def _load_done(out_dir):
     return done
 
 
+def _apply_file_list(files, src, file_list):
+    if not file_list:
+        return files, 0
+    keep = set()
+    with open(file_list, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith("rel_path"):
+                continue
+            parts = line.split("\t")
+            if parts:
+                keep.add(parts[0].replace("\\", "/"))
+    rels = {os.path.relpath(f, src).replace("\\", "/") for f in files}
+    return [f for f in files if os.path.relpath(f, src).replace("\\", "/") in keep], len(keep - rels)
+
+
 def full_extract_run(args):
     src = os.path.abspath(args.classified)
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
     done = _load_done(out)
     files = [str(p) for p in Path(src).rglob("*.html") if "_invalid" not in str(p)]
+    scanned = len(files)
+    file_list = getattr(args, "file_list", "") or ""
+    files, list_missing = _apply_file_list(files, src, file_list)
+    if file_list:
+        print("[FULL-EXTRACT] file-list: %d of %d scanned pages selected, %d entries not found" % (
+            len(files), scanned, list_missing), flush=True)
     done_n = sum(1 for f in files if os.path.relpath(f, src).replace("\\", "/") in done)
     todo = [f for f in files if os.path.relpath(f, src).replace("\\", "/") not in done]
     if args.limit:
         todo = todo[:args.limit]
     print("[FULL-EXTRACT] model=%s workers=%d total=%d resume-skipped=%d todo=%d" % (
-        args.model, args.workers, len(files), done_n, len(todo)))
+        args.model, args.workers, len(files), done_n, len(todo)), flush=True)
     if not todo:
         print("[FULL-EXTRACT] nothing to do")
         return 0
@@ -503,6 +540,8 @@ def full_extract_main(argv=None):
     ap.add_argument("--model", default="qwen3.5:9b")
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--file-list", default="",
+                    help="optional tsv with rel_path per line (e.g. subset file_list.tsv)")
     args = ap.parse_args(argv)
     return full_extract_run(args)
 

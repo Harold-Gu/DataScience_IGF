@@ -10,8 +10,8 @@ from .config import WORKERS
 
 
 COMMANDS = [
-    "scrape", "classify", "extract", "validate", "denoise", "recover",
-    "analyze", "retry", "selftest", "probe", "run",
+    "scrape", "classify", "extract", "validate", "denoise", "subset", "recover",
+    "analyze", "subset-check", "retry", "selftest", "probe", "run",
     "llm-bench", "llm-verify", "llm-kw", "llm-score", "baselines",
     "gold-sample", "gold-kappa", "gold-stats",
     "full-extract", "verify-extract", "downstream",
@@ -49,6 +49,12 @@ def build_parser():
     p.add_argument("--base", default=None, help="classified base dir for recover")
     p.add_argument("--top-k", type=int, default=None)
     p.add_argument("--min-body", type=int, default=None)
+    p.add_argument("--types", default=None, help="subset: comma-separated types to keep (default: 8 formal meeting types)")
+    p.add_argument("--sample", type=int, default=None, help="subset: optional stratified cap per type x year")
+    p.add_argument("--subset", default=None, help="subset-check: subset all.json to validate")
+    p.add_argument("--reps", type=int, default=None, help="subset-check: random-sampling replicates")
+    p.add_argument("--no-denoise", action="store_true", help="subset: skip noise filtering")
+    p.add_argument("--file-list", default=None, help="full-extract: tsv with rel_path per line (subset file_list.tsv)")
     p.add_argument("--url", default=None)
     p.add_argument("--wayback-year", default=None)
     p.add_argument("--models", default=None)
@@ -69,8 +75,7 @@ def _latest(prefix):
     dirs = [d for d in os.listdir(".") if d.startswith(prefix) and os.path.isdir(d)]
     if not dirs:
         return None
-    dirs.sort(reverse=True)
-    return dirs[0]
+    return max(dirs, key=os.path.getmtime)
 
 
 BENCH_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -100,6 +105,12 @@ def _find_extraction():
 
 
 def _find_all_json():
+    for prefix in ("igf_subset_", "igf_extracted_"):
+        latest = _latest(prefix)
+        if latest:
+            path = os.path.join(latest, "all.json")
+            if os.path.isfile(path):
+                return path
     latest = _latest("igf_extracted_")
     return _latest_file([latest], ["all.json"])
 
@@ -151,7 +162,7 @@ def _stage_classify(args):
 
 
 def _stage_extract(args):
-    src = args.classify_dir or _latest("igf_classified_")
+    src = args.classified or args.classify_dir or _latest("igf_classified_")
     if not src:
         return 3
     process.run_extract(src, args.extract_out, args.workers)
@@ -175,7 +186,7 @@ def _stage_validate(args):
 
 
 def _stage_full_extract(args):
-    src = args.classify_dir or _latest("igf_classified_")
+    src = args.classified or args.classify_dir or _latest("igf_classified_")
     if not src:
         return 3
     out = args.output or "igf_llm_extract_%s" % datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -183,12 +194,14 @@ def _stage_full_extract(args):
          "--workers", str(args.workers)]
     if args.limit:
         v += ["--limit", str(args.limit)]
+    if args.file_list:
+        v += ["--file-list", args.file_list]
     return llm.full_extract_main(v)
 
 
 def _stage_verify_extract(args):
     extraction = args.input or _find_extraction()
-    classified = args.classify_dir or _latest("igf_classified_")
+    classified = args.classified or args.classify_dir or _latest("igf_classified_")
     if not extraction or not classified:
         return 3
     out = args.output or "igf_verify_%s" % datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -308,8 +321,8 @@ def dispatch(args):
             return 2
         return _stage_classify(args)
     if cmd == "extract":
-        if not (args.classify_dir or _latest("igf_classified_")):
-            print("No igf_classified_* directory found; pass --classify-dir")
+        if not (args.classified or args.classify_dir or _latest("igf_classified_")):
+            print("No igf_classified_* directory found; pass --classified or --classify-dir")
             return 2
         return _stage_extract(args)
     if cmd == "validate":
@@ -326,6 +339,25 @@ def dispatch(args):
         if args.dry_run:
             v.append("--dry-run")
         process.denoise_main(v)
+        return 0
+    if cmd == "subset":
+        v = []
+        if args.input:
+            v += ["--input", args.input]
+        if args.output:
+            v += ["--output", args.output]
+        if args.types:
+            v += ["--types", args.types]
+        if args.sample:
+            v += ["--sample", str(args.sample)]
+        if args.no_denoise:
+            v.append("--no-denoise")
+        if args.min_body:
+            v += ["--min-body", str(args.min_body)]
+        v += ["--seed", str(args.seed)]
+        if args.dry_run:
+            v.append("--dry-run")
+        process.subset_main(v)
         return 0
     if cmd == "recover":
         v = []
@@ -346,6 +378,21 @@ def dispatch(args):
         if args.top_k:
             v += ["--top-k", str(args.top_k)]
         analyze.analysis_main(v)
+        return 0
+    if cmd == "subset-check":
+        v = []
+        if args.input:
+            v += ["--full", args.input]
+        if args.subset:
+            v += ["--subset", args.subset]
+        if args.sample:
+            v += ["--sample", str(args.sample)]
+        if args.reps:
+            v += ["--reps", str(args.reps)]
+        v += ["--seed", str(args.seed)]
+        if args.output:
+            v += ["--out", args.output]
+        analyze.subset_check_main(v)
         return 0
     if cmd == "retry":
         if not args.retry_failed:
@@ -373,7 +420,7 @@ def dispatch(args):
     if cmd == "llm-score":
         return run_score(args.gold, args.input, args.classified)
     if cmd == "gold-sample":
-        v = ["sample", args.classify_dir or _latest("igf_classified_") or "", "--target", str(args.limit or 48),
+        v = ["sample", args.classified or args.classify_dir or _latest("igf_classified_") or "", "--target", str(args.limit or 48),
              "--seed", str(args.seed), "--out", args.output or "sample.tsv",
              "--window-dir", args.window_dir]
         return llm.main(v)
@@ -381,18 +428,20 @@ def dispatch(args):
         v = ["kappa", args.input or "gold_annotator_A.json", args.gold or "gold_annotator_B.json"]
         return llm.main(v)
     if cmd == "gold-stats":
-        return llm.main(["stats", args.classify_dir or _latest("igf_classified_") or ""])
+        return llm.main(["stats", args.classified or args.classify_dir or _latest("igf_classified_") or ""])
     if cmd == "full-extract":
-        src = args.classify_dir or _latest("igf_classified_") or ""
+        src = args.classified or args.classify_dir or _latest("igf_classified_") or ""
         out = args.output or "igf_llm_extract_%s" % datetime.now().strftime("%Y%m%d_%H%M%S")
         v = ["--classified", src, "--out", out, "--model", args.models or "qwen3.5:9b",
              "--workers", str(args.workers)]
         if args.limit:
             v += ["--limit", str(args.limit)]
+        if args.file_list:
+            v += ["--file-list", args.file_list]
         return llm.full_extract_main(v)
     if cmd == "verify-extract":
         out = args.output or "igf_verify_%s" % datetime.now().strftime("%Y%m%d_%H%M%S")
-        v = ["--extraction", args.input or "", "--classified", args.classify_dir or _latest("igf_classified_") or "",
+        v = ["--extraction", args.input or "", "--classified", args.classified or args.classify_dir or _latest("igf_classified_") or "",
              "--out", out]
         if args.gold:
             v += ["--gold", args.gold]

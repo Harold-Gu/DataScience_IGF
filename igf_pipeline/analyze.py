@@ -106,7 +106,8 @@ def analysis_main(argv=None):
 
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     parser = argparse.ArgumentParser(description='Deep-dive IGF corpus analysis')
-    parser.add_argument('--input', help='path to denoised all.json (default: newest igf_denoised_*/all.json)')
+    parser.add_argument('--input', help='path to subset/denoised all.json '
+                                        '(default: newest igf_subset_*/all.json, else igf_denoised_*/all.json)')
     parser.add_argument('--output', help='output directory (default: igf_analysis_<timestamp>)')
     parser.add_argument('--top-k', type=int, default=15, help='keywords per year (default 15)')
     args = parser.parse_args(argv)
@@ -114,9 +115,11 @@ def analysis_main(argv=None):
     if args.input:
         input_path = Path(args.input).resolve()
     else:
-        candidates = sorted(Path.cwd().glob('igf_denoised_*/all.json'), key=lambda p: p.stat().st_mtime, reverse=True)
+        candidates = sorted(Path.cwd().glob('igf_subset_*/all.json'), key=lambda p: p.stat().st_mtime, reverse=True)
         if not candidates:
-            sys.exit('no igf_denoised_*/all.json found; use --input')
+            candidates = sorted(Path.cwd().glob('igf_denoised_*/all.json'), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not candidates:
+            sys.exit('no igf_subset_*/all.json or igf_denoised_*/all.json found; use --input')
         input_path = candidates[0]
     log('INPUT :', input_path)
     records = json.load(open(input_path, encoding='utf-8'))
@@ -346,6 +349,226 @@ def analysis_main(argv=None):
         handle.write('\n'.join(keyword_table))
         handle.write('\n')
     log('\nDone -> %s' % out_dir)
+    return 0
+
+
+def _tvd(a, b):
+    keys = set(a) | set(b)
+    sa, sb = sum(a.values()), sum(b.values())
+    if not sa or not sb:
+        return 1.0
+    return 0.5 * sum(abs(a.get(k, 0) / sa - b.get(k, 0) / sb) for k in keys)
+
+
+def _chi2_cells(obs, pop, n):
+    # Pearson chi-square over (type x year) cells with rare-cell pooling.
+    total = sum(pop.values()) or 1
+    stat = 0.0
+    pooled_obs = pooled_exp = 0.0
+    for key, count in pop.items():
+        expected = count / total * n
+        observed = obs.get(key, 0)
+        if expected < 5:
+            pooled_obs += observed
+            pooled_exp += expected
+        elif observed + expected > 0:
+            stat += (observed - expected) ** 2 / expected
+    if pooled_exp > 0:
+        stat += (pooled_obs - pooled_exp) ** 2 / pooled_exp
+    return stat
+
+
+def _dist_tables(recs):
+    types, years, cells = Counter(), Counter(), Counter()
+    for rec in recs:
+        rec_type = str(rec.get('type') or 'other')
+        year = str(rec.get('year') or 'unknown')
+        types[rec_type] += 1
+        years[year] += 1
+        cells[(rec_type, year)] += 1
+    return types, years, cells
+
+
+def _body_lengths(recs):
+    from . import process
+
+    lengths = []
+    for rec in recs:
+        remainder, _ = process._wayback_split(str(rec.get('body_text') or ''))
+        lengths.append(len(remainder))
+    return lengths
+
+
+def _pearson(xs, ys):
+    n = len(xs)
+    if n < 2:
+        return 0.0
+    mx, my = sum(xs) / n, sum(ys) / n
+    sxx = sum((x - mx) ** 2 for x in xs)
+    syy = sum((y - my) ** 2 for y in ys)
+    if sxx <= 0 or syy <= 0:
+        return 0.0
+    return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / (sxx * syy) ** 0.5
+
+
+def subset_check_main(argv=None):
+    import random
+
+    from . import process
+
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    parser = argparse.ArgumentParser(
+        description='Validate that the meeting subset represents the full corpus')
+    parser.add_argument('--full', help='full extracted all.json (default: newest igf_extracted_*/all.json)')
+    parser.add_argument('--subset', help='subset all.json (default: newest igf_subset_*/all.json)')
+    parser.add_argument('--sample', type=int, default=400,
+                        help='sample size for the stratified vs random comparison (0 = skip)')
+    parser.add_argument('--reps', type=int, default=200,
+                        help='random-sampling replicates for the baseline (default 200)')
+    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--out', default='', help='output directory (default: igf_subset_represent_<ts>)')
+    args = parser.parse_args(argv)
+
+    full_path = Path(args.full).resolve() if args.full else None
+    if full_path is None:
+        full_path = process.find_latest_input(Path.cwd())
+    if full_path is None or not full_path.is_file():
+        sys.exit('need --full or an igf_extracted_*/all.json')
+    subset_path = Path(args.subset).resolve() if args.subset else None
+    if subset_path is None:
+        candidates = sorted(Path.cwd().glob('igf_subset_*/all.json'),
+                            key=lambda p: p.stat().st_mtime, reverse=True)
+        subset_path = candidates[0] if candidates else None
+    if subset_path is None or not subset_path.is_file():
+        sys.exit('need --subset or an igf_subset_*/all.json')
+
+    print('FULL   :', full_path)
+    print('SUBSET :', subset_path)
+    full_recs = process._load_records(str(full_path))
+    sub_recs = process._load_records(str(subset_path))
+    formal = set(process.FORMAL_TYPES)
+    population = [r for r in full_recs if str(r.get('type') or '') in formal]
+    print('Records: full=%d formal-meeting population=%d subset=%d' % (
+        len(full_recs), len(population), len(sub_recs)))
+
+    pop_types, pop_years, pop_cells = _dist_tables(population)
+    sub_types, sub_years, sub_cells = _dist_tables(sub_recs)
+
+    report = []
+    report.append('IGF subset representativeness check %s' % datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    report.append('full: %s (%d records)' % (full_path, len(full_recs)))
+    report.append('formal-meeting population: %d records' % len(population))
+    report.append('subset: %s (%d records)' % (subset_path, len(sub_recs)))
+    report.append('')
+    report.append('== 1. Coverage ==')
+    missing_types = sorted(set(pop_types) - set(sub_types))
+    missing_years = sorted(set(pop_years) - set(sub_years))
+    report.append('types covered: %d/%d%s' % (len(set(sub_types)), len(set(pop_types)),
+                                              ' (missing: %s)' % ','.join(missing_types) if missing_types else ''))
+    report.append('years covered: %d/%d%s' % (len(set(sub_years)), len(set(pop_years)),
+                                              ' (missing: %s)' % ','.join(missing_years) if missing_years else ''))
+    lost_cells = sorted(k for k, c in pop_cells.items() if not sub_cells.get(k))
+    report.append('type x year cells fully removed: %d%s' % (
+        len(lost_cells), ' -> ' + '; '.join('%s/%s' % k for k in lost_cells[:10]) if lost_cells else ''))
+
+    report.append('')
+    report.append('== 2. Filter fidelity (subset vs formal-meeting population) ==')
+    d_type = _tvd(sub_types, pop_types)
+    d_year = _tvd(sub_years, pop_years)
+    d_cells = _tvd(sub_cells, pop_cells)
+    shared = [(sub_cells.get(k, 0), c) for k, c in pop_cells.items()]
+    r_cells = _pearson([s for s, _ in shared], [c for _, c in shared])
+    rel_errors = [abs(s - c) / c for s, c in shared if c > 0]
+    mean_rel = sum(rel_errors) / len(rel_errors) if rel_errors else 0.0
+    report.append('TVD type distribution       : %.4f' % d_type)
+    report.append('TVD year distribution       : %.4f' % d_year)
+    report.append('TVD type x year distribution: %.4f' % d_cells)
+    report.append('Pearson r (cell counts)     : %.4f' % r_cells)
+    report.append('mean abs relative error     : %.4f' % mean_rel)
+
+    pop_len = _body_lengths(population)
+    sub_len = _body_lengths(sub_recs)
+    report.append('body chars (population): n=%d mean=%.0f median=%.0f p90=%.0f' % (
+        len(pop_len), mean(pop_len), median(pop_len), sorted(pop_len)[int(len(pop_len) * 0.9)]))
+    report.append('body chars (subset)     : n=%d mean=%.0f median=%.0f p90=%.0f' % (
+        len(sub_len), mean(sub_len), median(sub_len), sorted(sub_len)[int(len(sub_len) * 0.9)]))
+    boot = []
+    rng = random.Random(args.seed)
+    for _ in range(2000):
+        a = [rng.choice(pop_len) for _ in range(1000)]
+        b = [rng.choice(sub_len) for _ in range(1000)]
+        boot.append(mean(b) - mean(a))
+    boot.sort()
+    report.append('bootstrap 95%% CI of mean body diff (subset-population): [%.0f, %.0f]' % (
+        boot[50], boot[1949]))
+
+    sampling_rows = []
+    if args.sample and args.sample < len(population):
+        groups = defaultdict(list)
+        for idx, rec in enumerate(population):
+            groups[(str(rec.get('type')), str(rec.get('year')))].append(idx)
+        quotas = process._stratified_quota({k: len(v) for k, v in groups.items()},
+                                           args.sample, args.seed)
+        picks = []
+        for key, idxs in groups.items():
+            picks.extend(rng.sample(idxs, quotas.get(key, 0)))
+        strat_recs = [population[i] for i in sorted(picks)]
+        strat_types, strat_years, strat_cells = _dist_tables(strat_recs)
+        q_strat = _chi2_cells(strat_cells, pop_cells, args.sample)
+        d_strat_type = _tvd(strat_types, pop_types)
+        d_strat_year = _tvd(strat_years, pop_years)
+        strat_coverage = len(strat_cells)
+
+        q_rand = []
+        d_rand_type = []
+        cover_rand = []
+        for rep in range(args.reps):
+            rng2 = random.Random(args.seed * 1000 + rep)
+            sample = rng2.sample(population, args.sample)
+            st, sy, sc = _dist_tables(sample)
+            q_rand.append(_chi2_cells(sc, pop_cells, args.sample))
+            d_rand_type.append(_tvd(st, pop_types))
+            cover_rand.append(len(sc))
+        better = sum(1 for q in q_rand if q <= q_strat)
+        p_value = (better + 1) / (args.reps + 1)
+        full_cover = sum(1 for c in cover_rand if c >= len(pop_cells))
+
+        report.append('')
+        report.append('== 3. Stratified quota vs simple random sampling (n=%d, reps=%d) ==' % (
+            args.sample, args.reps))
+        report.append('discrepancy metric = Pearson chi-square over type x year cells (pooled)')
+        report.append('stratified  chi2=%.2f  TVD(type)=%.4f  TVD(year)=%.4f' % (
+            q_strat, d_strat_type, d_strat_year))
+        report.append('random mean chi2=%.2f (sd %.2f, min %.2f, max %.2f)' % (
+            mean(q_rand), (sum((q - mean(q_rand)) ** 2 for q in q_rand) / args.reps) ** 0.5,
+            min(q_rand), max(q_rand)))
+        report.append('random mean TVD(type)=%.4f' % mean(d_rand_type))
+        report.append('type x year cells (population): %d' % len(pop_cells))
+        report.append('cells covered: stratified=%d  random mean=%.1f (min %d, max %d); random draws with full coverage: %d/%d' % (
+            strat_coverage, mean(cover_rand), min(cover_rand), max(cover_rand), full_cover, args.reps))
+        report.append('random replicates with chi2 <= stratified: %d/%d (one-sided p=%.4f)' % (
+            better, args.reps, p_value))
+        verdict = 'stratified is more representative' if q_strat <= min(q_rand) else \
+            'stratified beats most random draws' if q_strat < mean(q_rand) else \
+            'no advantage detected'
+        report.append('verdict: %s' % verdict)
+        sampling_rows = [['replicate', 'chi2', 'tvd_type']] + \
+                        [[i, q_rand[i], d_rand_type[i]] for i in range(args.reps)]
+    else:
+        report.append('')
+        report.append('== 3. Sampling comparison skipped (--sample 0 or >= population) ==')
+
+    out_dir = Path(args.out) if args.out else Path.cwd() / ('igf_subset_represent_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with open(out_dir / 'subset_represent_report.txt', 'w', encoding='utf-8') as handle:
+        handle.write('\n'.join(report))
+        handle.write('\n')
+    write_csv(out_dir, 'type_year_counts.tsv', ['type', 'year', 'population', 'subset'],
+              [[k[0], k[1], c, sub_cells.get(k, 0)] for k, c in sorted(pop_cells.items())])
+    if sampling_rows:
+        write_csv(out_dir, 'sampling_comparison.tsv', sampling_rows[0], sampling_rows[1:])
+    print('\n'.join(report))
+    print('\nWrote -> %s' % out_dir)
     return 0
 
 
